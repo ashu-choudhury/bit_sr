@@ -1,6 +1,6 @@
 # bit_sr ⚡
 
-[![Release](https://img.shields.io/badge/release-v0.1.0--alpha-blue.svg)](https://github.com/your-username/bit_sr/releases)
+[![Release](https://img.shields.io/badge/release-v0.1.0--alpha-blue.svg)](https://github.com/ashu-choudhury/bit_sr/releases)
 [![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green.svg)](#licensing--philosophy)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20(planned)-lightgrey.svg)](#architecture)
@@ -92,8 +92,9 @@ When `bit_sr` is running, the following global hotkeys are active:
 
 1. **Clone the repository:**
    ```powershell
-   git clone https://github.com/your-username/bit_sr.git
+   git clone https://github.com/ashu-choudhury/bit_sr.git
    cd bit_sr
+   git submodule update --init --recursive
    ```
 
 2. **Run all tests (26 unit tests):**
