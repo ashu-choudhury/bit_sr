@@ -1,0 +1,158 @@
+//! Unified Accessible Role Definitions.
+//! Aligned with WINDOWS.md, LINUX.md, and VISION.md.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[repr(u32)]
+pub enum Role {
+    #[default]
+    Unknown = 0,
+    Window = 1,
+    TitleBar = 2,
+    Pane = 3,
+    Dialog = 4,
+    CheckBox = 5,
+    RadioButton = 6,
+    StaticText = 7,
+    EditableText = 8,
+    Button = 9,
+    MenuBar = 10,
+    MenuItem = 11,
+    PopupMenu = 12,
+    ComboBox = 13,
+    List = 14,
+    ListItem = 15,
+    Graphic = 16,
+    HelpBalloon = 17,
+    ToolTip = 18,
+    Link = 19,
+    TreeView = 20,
+    TreeViewItem = 21,
+    Tab = 22,
+    TabControl = 23,
+    Slider = 24,
+    ProgressBar = 25,
+    ScrollBar = 26,
+    StatusBar = 27,
+    Table = 28,
+    TableCell = 29,
+    TableColumn = 30,
+    TableRow = 31,
+    TableColumnHeader = 32,
+    TableRowHeader = 33,
+    Frame = 34,
+    ToolBar = 35,
+    DropDownButton = 36,
+    Clock = 37,
+    Separator = 38,
+    Form = 39,
+    Heading = 40,
+    Paragraph = 41,
+    Document = 42,
+    Animation = 43,
+    Application = 44,
+    Box = 45,
+    Grouping = 46,
+    PropertyPage = 47,
+    Alert = 48,
+    Border = 49,
+    SplitButton = 50,
+    DataGrid = 51,
+    DataItem = 52,
+    Header = 53,
+    HeaderItem = 54,
+    Thumb = 55,
+    Calendar = 56,
+    SpinButton = 57,
+    Section = 58,
+    Landmark = 59,
+    Switch = 60,
+    Terminal = 61,
+    TreeGrid = 62,
+    Math = 63,
+}
+
+impl Role {
+    /// Human-friendly display string for speech synthesis and logging.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Window => "window",
+            Self::TitleBar => "title bar",
+            Self::Pane => "pane",
+            Self::Dialog => "dialog",
+            Self::CheckBox => "check box",
+            Self::RadioButton => "radio button",
+            Self::StaticText => "text",
+            Self::EditableText => "edit",
+            Self::Button => "button",
+            Self::MenuBar => "menu bar",
+            Self::MenuItem => "menu item",
+            Self::PopupMenu => "popup menu",
+            Self::ComboBox => "combo box",
+            Self::List => "list",
+            Self::ListItem => "list item",
+            Self::Graphic => "graphic",
+            Self::HelpBalloon => "help balloon",
+            Self::ToolTip => "tooltip",
+            Self::Link => "link",
+            Self::TreeView => "tree view",
+            Self::TreeViewItem => "tree item",
+            Self::Tab => "tab",
+            Self::TabControl => "tab control",
+            Self::Slider => "slider",
+            Self::ProgressBar => "progress bar",
+            Self::ScrollBar => "scroll bar",
+            Self::StatusBar => "status bar",
+            Self::Table => "table",
+            Self::TableCell => "cell",
+            Self::TableColumn => "column",
+            Self::TableRow => "row",
+            Self::TableColumnHeader => "column header",
+            Self::TableRowHeader => "row header",
+            Self::Frame => "frame",
+            Self::ToolBar => "toolbar",
+            Self::DropDownButton => "drop down button",
+            Self::Clock => "clock",
+            Self::Separator => "separator",
+            Self::Form => "form",
+            Self::Heading => "heading",
+            Self::Paragraph => "paragraph",
+            Self::Document => "document",
+            Self::Animation => "animation",
+            Self::Application => "application",
+            Self::Box => "box",
+            Self::Grouping => "grouping",
+            Self::PropertyPage => "property page",
+            Self::Alert => "alert",
+            Self::Border => "border",
+            Self::SplitButton => "split button",
+            Self::DataGrid => "grid",
+            Self::DataItem => "grid item",
+            Self::Header => "header",
+            Self::HeaderItem => "header item",
+            Self::Thumb => "thumb",
+            Self::Calendar => "calendar",
+            Self::SpinButton => "spin button",
+            Self::Section => "section",
+            Self::Landmark => "landmark",
+            Self::Switch => "switch",
+            Self::Terminal => "terminal",
+            Self::TreeGrid => "tree grid",
+            Self::Math => "math",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_role_display_names() {
+        assert_eq!(Role::Button.display_name(), "button");
+        assert_eq!(Role::CheckBox.display_name(), "check box");
+        assert_eq!(Role::ListItem.display_name(), "list item");
+        assert_eq!(Role::TreeViewItem.display_name(), "tree item");
+        assert_eq!(Role::Unknown.display_name(), "unknown");
+    }
+}

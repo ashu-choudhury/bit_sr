@@ -1,0 +1,10 @@
+[package]
+name = "bit_sr_core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Core accessibility tree models, roles, states, and event definitions for bit_sr"
+
+[dependencies]
+bitflags = "2.8"
+serde = { version = "1.0", features = ["derive"], optional = true }
