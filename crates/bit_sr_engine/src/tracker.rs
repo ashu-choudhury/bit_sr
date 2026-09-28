@@ -71,6 +71,11 @@ impl FocusTracker {
         title
     }
 
+    /// Explicitly updates the current window title.
+    pub fn set_window_title(&mut self, title: String) {
+        self.current_window_title = Some(title);
+    }
+
     /// Returns a reference to the currently focused node.
     pub fn current_focus(&self) -> Option<&AccessibleNode> {
         self.current_focus.as_ref()

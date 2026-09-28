@@ -66,7 +66,10 @@ unsafe extern "system" fn win_event_callback(
         if let Ok(guard) = MSAA_CHANNEL.lock() {
             if let Some(ref tx) = *guard {
                 match event {
-                    EVENT_OBJECT_FOCUS | EVENT_SYSTEM_FOREGROUND => {
+                    EVENT_SYSTEM_FOREGROUND => {
+                        let _ = tx.try_send(AccessibilityEvent::WindowActivated(node));
+                    }
+                    EVENT_OBJECT_FOCUS => {
                         let _ = tx.try_send(AccessibilityEvent::Focus(node));
                     }
                     EVENT_OBJECT_SELECTION => {

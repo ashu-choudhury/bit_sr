@@ -126,7 +126,19 @@ impl EngineCoordinator {
             }
 
             ScreenReaderCommand::AnnounceTitle => {
-                let title = self.focus_tracker.current_window_title().unwrap_or("Unknown window");
+                #[cfg(windows)]
+                let live_title = bit_sr_platform_windows::get_foreground_window_title();
+                #[cfg(not(windows))]
+                let live_title: Option<String> = None;
+
+                if let Some(ref lt) = live_title {
+                    self.focus_tracker.set_window_title(lt.clone());
+                }
+
+                let title = live_title
+                    .as_deref()
+                    .or_else(|| self.focus_tracker.current_window_title())
+                    .unwrap_or("Unknown window");
                 let msg = format!("{}, window", title);
                 let _ = self.speech_hub.speak(&msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg)

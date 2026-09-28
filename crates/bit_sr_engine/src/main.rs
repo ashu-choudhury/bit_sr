@@ -88,7 +88,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = speech_hub.speak("bit_sr screen reader active.", bit_sr_speech::SpeechPriority::Now);
 
     // 4. Run Engine Coordinator
-    let coordinator = EngineCoordinator::new(speech_hub);
+    let mut coordinator = EngineCoordinator::new(speech_hub);
+
+    #[cfg(windows)]
+    if let Some(title) = bit_sr_platform_windows::get_foreground_window_title() {
+        coordinator.focus_tracker.set_window_title(title);
+    }
+
     coordinator.run(event_rx, shutdown_rx);
 
     // 5. Clean Shutdown
