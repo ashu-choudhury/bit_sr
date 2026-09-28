@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Core data models, roles, states, actions, and accessibility tree for bit_sr.
 
 pub mod actions;

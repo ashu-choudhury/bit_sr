@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! bit_sr Screen Reader - Main CLI Binary
 //! High-performance native screen reader for Windows and Linux!
 

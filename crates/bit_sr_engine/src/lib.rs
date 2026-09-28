@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Core Screen Reader Engine for bit_sr.
 //!
 //! Platform-agnostic engine orchestrating speech formatting, focus tracking,

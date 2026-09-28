@@ -189,9 +189,7 @@ impl Default for LocalizationManager {
     }
 }
 
-// Ensure Send and Sync for cross-thread screen reader usage
-unsafe impl Send for LocalizationManager {}
-unsafe impl Sync for LocalizationManager {}
+
 
 #[cfg(test)]
 mod tests {
