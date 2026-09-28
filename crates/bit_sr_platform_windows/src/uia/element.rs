@@ -174,6 +174,7 @@ impl UiaElement {
                 level,
             },
             process_id,
+            ..Default::default()
         }
     }
 }
