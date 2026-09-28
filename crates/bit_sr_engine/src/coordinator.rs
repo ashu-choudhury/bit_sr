@@ -40,7 +40,39 @@ impl EngineCoordinator {
                 EngineAction::Interrupted
             }
 
+            AccessibilityEvent::CapsLockToggled(is_on) => {
+                let msg = if is_on { "Caps Lock on" } else { "Caps Lock off" };
+                let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                EngineAction::Spoke(msg.to_string())
+            }
+
             AccessibilityEvent::Input(key) => {
+                if key.action != bit_sr_core::input::KeyAction::Down {
+                    return EngineAction::None;
+                }
+
+                // If in input help mode, describe keystroke without executing command
+                if self.command_dispatcher.input_help_active {
+                    let gesture = bit_sr_core::input::InputGesture::new(key.modifiers, key.key);
+                    if let Some(cmd) = self.command_dispatcher.gesture_map.lookup(&gesture) {
+                        if cmd == ScreenReaderCommand::ToggleInputHelp {
+                            self.command_dispatcher.input_help_active = false;
+                            #[cfg(windows)]
+                            bit_sr_platform_windows::set_input_help_active(false);
+                            let msg = "Input help off";
+                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                            return EngineAction::Spoke(msg.to_string());
+                        }
+                        let announcement = format!("{}: {}", gesture.display_name(), cmd.display_name());
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        return EngineAction::Spoke(announcement);
+                    } else {
+                        let announcement = gesture.display_name();
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        return EngineAction::Spoke(announcement);
+                    }
+                }
+
                 if let Some(cmd) = self.command_dispatcher.process_key(&key) {
                     self.execute_command(cmd)
                 } else {
@@ -196,6 +228,19 @@ impl EngineCoordinator {
                 let _ = self.speech_hub.speak(&msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg)
             }
+
+            ScreenReaderCommand::ToggleInputHelp => {
+                #[cfg(windows)]
+                bit_sr_platform_windows::set_input_help_active(self.command_dispatcher.input_help_active);
+
+                let msg = if self.command_dispatcher.input_help_active {
+                    "Input help on"
+                } else {
+                    "Input help off"
+                };
+                let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                EngineAction::Spoke(msg.to_string())
+            }
         }
     }
 
@@ -259,6 +304,7 @@ mod tests {
 
         // Send RepeatFocus command via keypress (Insert + Tab)
         let key_repeat = bit_sr_core::input::KeyEvent {
+            key: bit_sr_core::input::Key::Tab,
             vk_code: 0x09,
             scan_code: 0,
             is_extended: false,
@@ -269,5 +315,42 @@ mod tests {
         };
         let action_repeat = coordinator.handle_event(AccessibilityEvent::Input(key_repeat));
         assert_eq!(action_repeat, EngineAction::Spoke("OK, button".to_string()));
+    }
+
+    #[test]
+    fn test_coordinator_input_help_mode() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        let _history = mock.clone();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+
+        // Press SR + 1 to turn on input help
+        let key_help = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Num1,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::SR,
+        );
+        let action = coordinator.handle_event(AccessibilityEvent::Input(key_help.clone()));
+        assert_eq!(action, EngineAction::Spoke("Input help on".to_string()));
+        assert!(coordinator.command_dispatcher.input_help_active);
+
+        // Press SR + T while in input help
+        let key_t = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::T,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::SR,
+        );
+        let action_t = coordinator.handle_event(AccessibilityEvent::Input(key_t));
+        assert_eq!(
+            action_t,
+            EngineAction::Spoke("SR + T: Announce Window Title".to_string())
+        );
+
+        // Press SR + 1 again to exit input help
+        let action_off = coordinator.handle_event(AccessibilityEvent::Input(key_help));
+        assert_eq!(action_off, EngineAction::Spoke("Input help off".to_string()));
+        assert!(!coordinator.command_dispatcher.input_help_active);
     }
 }

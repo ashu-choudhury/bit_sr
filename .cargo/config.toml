@@ -1,0 +1,3 @@
+[build]
+# Limit cargo build jobs to 5 so at least 3 CPU cores remain free for Windows OS, audio, and responsiveness.
+jobs = 5

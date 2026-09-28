@@ -21,12 +21,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ║         High-Performance Native Screen Reader for Windows         ║
 ╚═══════════════════════════════════════════════════════════════════╝
   Hotkeys:
-    • Insert + Tab              : Repeat current focus
-    • Insert + T                : Speak active window title
-    • Insert + S                : Toggle speech mode (Talk / Mute)
-    • Insert + Ctrl + Up/Down   : Adjust volume
-    • Insert + Ctrl + Left/Right: Adjust speech rate
-    • Ctrl + Alt + Q or Insert+Q: Exit cleanly
+    • CapsLock (default SR key) or Insert
+    • SR + 1                    : Toggle Input Help mode (test any key safely!)
+    • Double-tap CapsLock       : Toggle Caps Lock hardware state on/off
+    • SR + Tab                  : Repeat current focus
+    • SR + T                    : Speak active window title
+    • SR + S                    : Toggle speech mode (Talk / Mute)
+    • SR + Ctrl + Up/Down       : Adjust volume
+    • SR + Ctrl + Left/Right    : Adjust speech rate
+    • Ctrl + Alt + Q or SR + Q  : Exit cleanly
 "#
     );
 

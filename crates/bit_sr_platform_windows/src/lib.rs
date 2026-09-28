@@ -16,7 +16,9 @@ pub use com::ComGuard;
 pub use common_controls::{EditControlReader, SysListView32Reader};
 pub use desktop::{get_foreground_window_title, is_secure_desktop_active};
 pub use error::{Error, Result};
-pub use input::{get_current_modifiers, KeyboardHookHandle};
+pub use input::{
+    get_current_modifiers, is_input_help_active, set_input_help_active, KeyboardHookHandle,
+};
 pub use msaa::{MsaaElement, WinEventHookHandle};
 pub use uia::{create_base_cache_request, Patterns, TreeNavigator, UiaClient, UiaElement};
 pub use watchdog::{is_window_hung, safe_send_message_timeout};

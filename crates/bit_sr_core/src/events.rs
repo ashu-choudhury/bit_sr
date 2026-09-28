@@ -52,6 +52,9 @@ pub enum AccessibilityEvent {
     /// Low-level keyboard input event.
     Input(KeyEvent),
 
+    /// Caps Lock hardware state was toggled via double-tap.
+    CapsLockToggled(bool),
+
     /// Instant speech cancellation requested by keypress.
     SpeechInterrupt,
 }
