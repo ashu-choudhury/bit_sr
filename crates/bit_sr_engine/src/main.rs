@@ -1,5 +1,5 @@
 //! bit_sr Screen Reader - Main CLI Binary
-//! High-performance native screen reader for Windows.
+//! High-performance native screen reader for Windows and Linux!
 
 use bit_sr_core::events::AccessibilityEvent;
 use bit_sr_engine::EngineCoordinator;

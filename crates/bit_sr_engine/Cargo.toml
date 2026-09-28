@@ -16,6 +16,9 @@ ctrlc = "3.4"
 [target.'cfg(windows)'.dependencies]
 bit_sr_platform_windows = { path = "../bit_sr_platform_windows" }
 
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+
 [[bin]]
 name = "bit_sr"
 path = "src/main.rs"
