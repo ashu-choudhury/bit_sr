@@ -7,6 +7,7 @@ pub mod input;
 pub mod node;
 pub mod roles;
 pub mod states;
+pub mod text;
 pub mod tree;
 
 pub use actions::{AccessibleAction, ActionCapabilities, ActionError, ActionPerformer};
@@ -22,5 +23,6 @@ pub use node::{
 };
 pub use roles::Role;
 pub use states::State;
+pub use text::{TextProvider, TextUnit};
 pub use tree::{AccessibilityTree, NavDirection, NavFilter};
 

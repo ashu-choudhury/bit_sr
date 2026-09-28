@@ -95,6 +95,13 @@ pub fn catalog() -> &'static [(&'static str, &'static str)] {
         ("format.pos_of_total", "{pos} of {count}"),
         ("format.level", "level {level}"),
         ("format.window_suffix", "{title}, window"),
+        ("format.blank", "blank"),
+
+        // Spoken Key Names
+        ("key.space", "space"),
+        ("key.enter", "enter"),
+        ("key.backspace", "backspace"),
+        ("key.delete", "delete"),
 
         // System Announcements
         ("system.speech_talk", "Speech on"),

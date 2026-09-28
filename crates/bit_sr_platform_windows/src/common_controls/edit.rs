@@ -44,4 +44,92 @@ impl EditControlReader {
     pub fn get_line_length(hwnd: HWND, char_index_in_line: usize) -> Option<usize> {
         safe_send_message_timeout(hwnd, EM_LINELENGTH, WPARAM(char_index_in_line), LPARAM(0), 500)
     }
+
+    /// Obtains the text of the window/control.
+    pub fn get_window_text(hwnd: HWND) -> Option<String> {
+        let mut buf = [0u16; 4096];
+        let len = unsafe { windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut buf) };
+        if len > 0 {
+            Some(String::from_utf16_lossy(&buf[..len as usize]))
+        } else {
+            None
+        }
+    }
+
+    /// Extracts text at the caret for the given unit (Character, Word, or Line) in a classic Win32 edit control.
+    pub fn get_text_at_caret(hwnd: HWND, unit: bit_sr_core::TextUnit) -> Option<String> {
+        let (start, _end) = Self::get_selection(hwnd)?;
+        let full_text = Self::get_window_text(hwnd)?;
+
+        match unit {
+            bit_sr_core::TextUnit::Character => {
+                let ch = full_text.chars().nth(start).map(|c| c.to_string()).unwrap_or_default();
+                Some(ch)
+            }
+            bit_sr_core::TextUnit::Line => {
+                Some(Self::extract_line_at_offset(&full_text, start))
+            }
+            bit_sr_core::TextUnit::Word => {
+                Some(Self::extract_word_at_offset(&full_text, start))
+            }
+            _ => Some(full_text),
+        }
+    }
+
+    /// Extracts the line of text spanning the given character offset.
+    pub fn extract_line_at_offset(text: &str, offset: usize) -> String {
+        let mut current_offset = 0;
+        for line in text.split('\n') {
+            let line_len = line.len() + 1; // +1 for newline character
+            if offset >= current_offset && offset < current_offset + line_len {
+                return line.trim_end_matches('\r').to_string();
+            }
+            current_offset += line_len;
+        }
+        text.lines().last().unwrap_or("").trim_end_matches('\r').to_string()
+    }
+
+    /// Extracts the word spanning the given character offset.
+    pub fn extract_word_at_offset(text: &str, offset: usize) -> String {
+        let chars: Vec<char> = text.chars().collect();
+        if chars.is_empty() || offset >= chars.len() {
+            return String::new();
+        }
+
+        let mut start = offset;
+        while start > 0 && !chars[start - 1].is_whitespace() {
+            start -= 1;
+        }
+
+        let mut end = offset;
+        while end < chars.len() && !chars[end].is_whitespace() {
+            end += 1;
+        }
+
+        chars[start..end].iter().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_line_at_offset() {
+        let text = "First line\nSecond line here\nThird line";
+        assert_eq!(EditControlReader::extract_line_at_offset(text, 0), "First line");
+        assert_eq!(EditControlReader::extract_line_at_offset(text, 5), "First line");
+        assert_eq!(EditControlReader::extract_line_at_offset(text, 11), "Second line here");
+        assert_eq!(EditControlReader::extract_line_at_offset(text, 20), "Second line here");
+        assert_eq!(EditControlReader::extract_line_at_offset(text, 28), "Third line");
+    }
+
+    #[test]
+    fn test_extract_word_at_offset() {
+        let text = "Hello world from bit_sr";
+        assert_eq!(EditControlReader::extract_word_at_offset(text, 0), "Hello");
+        assert_eq!(EditControlReader::extract_word_at_offset(text, 3), "Hello");
+        assert_eq!(EditControlReader::extract_word_at_offset(text, 6), "world");
+        assert_eq!(EditControlReader::extract_word_at_offset(text, 17), "bit_sr");
+    }
 }

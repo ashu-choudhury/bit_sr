@@ -15,7 +15,8 @@ use std::sync::Mutex;
 use std::time::Instant;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, GetAsyncKeyState, GetKeyState, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+    keybd_event, GetAsyncKeyState, GetKeyState, GetKeyboardLayout, GetKeyboardState,
+    ToUnicodeEx, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VK_ADD, VK_APPS, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DECIMAL, VK_DELETE, VK_DIVIDE,
     VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F24, VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT,
     VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE,
@@ -26,7 +27,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_SUBTRACT, VK_TAB, VK_UP, VK_VOLUME_DOWN, VK_VOLUME_MUTE, VK_VOLUME_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
+    CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
+    PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
     KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_QUIT,
 };
 
@@ -213,6 +215,43 @@ pub fn configure_sr_keys(config: SRKeyConfig) {
     }
 }
 
+/// Queries the typed unicode character for a physical key down using ToUnicodeEx.
+/// Uses the TM_DONT_MODIFY_KEY_STATE flag (0x04) to avoid destroying dead key / keyboard state.
+unsafe fn get_typed_character(vk_code: u32, scan_code: u32) -> Option<String> {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        let thread_id = if !hwnd.0.is_null() {
+            GetWindowThreadProcessId(hwnd, None)
+        } else {
+            0
+        };
+        let hkl = GetKeyboardLayout(thread_id);
+
+        let mut key_state = [0u8; 256];
+        let _ = GetKeyboardState(&mut key_state);
+
+        let mut char_buf = [0u16; 8];
+        // Flag 0x0004 is TM_DONT_MODIFY_KEY_STATE (Windows 10 RS2+)
+        let ret = ToUnicodeEx(
+            vk_code,
+            scan_code,
+            &key_state,
+            &mut char_buf,
+            0x0004,
+            Some(hkl),
+        );
+
+        if ret > 0 {
+            let s = String::from_utf16_lossy(&char_buf[..ret as usize]);
+            let trimmed: String = s.chars().filter(|c| !c.is_control()).collect();
+            if !trimmed.is_empty() {
+                return Some(trimmed);
+            }
+        }
+        None
+    }
+}
+
 /// The low-level keyboard hook callback procedure.
 /// Critical invariant: NEVER execute COM calls or blocking work here.
 unsafe extern "system" fn low_level_keyboard_proc(
@@ -263,6 +302,19 @@ unsafe extern "system" fn low_level_keyboard_proc(
             modifiers |= KeyModifiers::SR;
         }
 
+        // Query typed character only on key down when non-modifier and without command modifiers
+        let text = if action == KeyAction::Down
+            && !key.is_modifier()
+            && !modifiers.contains(KeyModifiers::SR)
+            && !modifiers.contains(KeyModifiers::ALT)
+            && !modifiers.contains(KeyModifiers::CONTROL)
+            && !modifiers.contains(KeyModifiers::SUPER)
+        {
+            unsafe { get_typed_character(kbd.vkCode, kbd.scanCode) }
+        } else {
+            None
+        };
+
         let key_event = KeyEvent {
             key,
             vk_code: kbd.vkCode,
@@ -271,7 +323,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             is_injected,
             action,
             modifiers,
-            text: None,
+            text,
         };
 
         if let Ok(guard) = HOOK_CHANNEL.lock() {

@@ -107,6 +107,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = coordinator.speech_hub.speak(ready_msg, bit_sr_speech::SpeechPriority::Now);
 
     #[cfg(windows)]
+    if let Some(tp) = platform.text_provider() {
+        coordinator.set_text_provider(tp);
+    }
+
+    #[cfg(windows)]
     if let Some(title) = bit_sr_platform_windows::get_foreground_window_title() {
         coordinator.focus_tracker.set_window_title(title);
     }

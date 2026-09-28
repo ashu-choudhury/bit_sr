@@ -79,4 +79,22 @@ impl<'a> Patterns<'a> {
             Ok(())
         }
     }
+
+    /// Reads text at the current caret / selection position using IUIAutomationTextPattern.
+    /// Supports TextUnit_Character, TextUnit_Word, and TextUnit_Line.
+    pub fn get_text_at_caret(&self, unit: TextUnit) -> Result<Option<String>> {
+        unsafe {
+            let pattern = self.element.GetCurrentPattern(UIA_TextPatternId)?;
+            let text_pat: IUIAutomationTextPattern = pattern.cast()?;
+            let selection = text_pat.GetSelection()?;
+            if selection.Length()? > 0 {
+                let range = selection.GetElement(0)?;
+                range.ExpandToEnclosingUnit(unit)?;
+                let bstr = range.GetText(-1)?;
+                let text = bstr.to_string();
+                return Ok(Some(text));
+            }
+            Ok(None)
+        }
+    }
 }

@@ -8,6 +8,7 @@ pub mod desktop;
 pub mod error;
 pub mod input;
 pub mod msaa;
+pub mod text;
 pub mod uia;
 pub mod watchdog;
 
@@ -20,6 +21,7 @@ pub use input::{
     get_current_modifiers, is_input_help_active, set_input_help_active, KeyboardHookHandle,
 };
 pub use msaa::{MsaaElement, WinEventHookHandle};
+pub use text::WindowsTextProvider;
 pub use uia::{create_base_cache_request, Patterns, TreeNavigator, UiaClient, UiaElement};
 pub use watchdog::{is_window_hung, safe_send_message_timeout};
 
@@ -34,7 +36,7 @@ pub struct WindowsPlatform {
     com_guard: Option<com::ComGuard>,
     keyboard_hook: Option<KeyboardHookHandle>,
     msaa_hook: Option<WinEventHookHandle>,
-    uia_client: Option<UiaClient>,
+    uia_client: Option<Arc<UiaClient>>,
     explorer_filter: Arc<ExplorerFilter>,
 }
 
@@ -57,7 +59,7 @@ impl WindowsPlatform {
 
         // 4. Initialize Microsoft UI Automation client
         log::info!("Starting Microsoft UI Automation client...");
-        let uia_client = UiaClient::new(tx, explorer_filter.clone())?;
+        let uia_client = Arc::new(UiaClient::new(tx, explorer_filter.clone())?);
 
         log::info!("Windows accessibility platform successfully started!");
 
@@ -76,8 +78,15 @@ impl WindowsPlatform {
     }
 
     /// Access the active UI Automation client.
-    pub fn uia(&self) -> Option<&UiaClient> {
+    pub fn uia(&self) -> Option<&Arc<UiaClient>> {
         self.uia_client.as_ref()
+    }
+
+    /// Obtains a TextProvider implementation for reading text at the caret in edit controls.
+    pub fn text_provider(&self) -> Option<Arc<dyn bit_sr_core::TextProvider>> {
+        self.uia_client.as_ref().map(|uia| {
+            Arc::new(WindowsTextProvider::new(uia.clone())) as Arc<dyn bit_sr_core::TextProvider>
+        })
     }
 
     /// Cleanly terminates all hooks and event listeners.

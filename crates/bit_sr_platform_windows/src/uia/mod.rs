@@ -151,3 +151,7 @@ impl Drop for UiaClient {
         self.remove_all_event_handlers();
     }
 }
+
+// UiaClient is initialized in MTA COM and thread-safe
+unsafe impl Send for UiaClient {}
+unsafe impl Sync for UiaClient {}

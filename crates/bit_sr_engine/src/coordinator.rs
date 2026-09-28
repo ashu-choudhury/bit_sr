@@ -21,6 +21,7 @@ pub struct EngineCoordinator {
     pub command_dispatcher: CommandDispatcher,
     pub formatter_context: FormatterContext,
     pub loc: std::sync::Arc<bit_sr_core::LocalizationManager>,
+    pub text_provider: Option<std::sync::Arc<dyn bit_sr_core::TextProvider>>,
 }
 
 impl EngineCoordinator {
@@ -35,6 +36,7 @@ impl EngineCoordinator {
             command_dispatcher: CommandDispatcher::new(),
             formatter_context: FormatterContext::default(),
             loc: std::sync::Arc::new(bit_sr_core::LocalizationManager::new(locale)),
+            text_provider: None,
         }
     }
 
@@ -48,7 +50,13 @@ impl EngineCoordinator {
             command_dispatcher: CommandDispatcher::new(),
             formatter_context: FormatterContext::default(),
             loc,
+            text_provider: None,
         }
+    }
+
+    /// Sets the platform text provider for reading text at the caret.
+    pub fn set_text_provider(&mut self, provider: std::sync::Arc<dyn bit_sr_core::TextProvider>) {
+        self.text_provider = Some(provider);
     }
 
     /// Sets the active locale at runtime.
@@ -101,11 +109,118 @@ impl EngineCoordinator {
                     }
                 }
 
+                // Check registered screen reader commands
                 if let Some(cmd) = self.command_dispatcher.process_key(&key) {
-                    self.execute_command(cmd)
-                } else {
-                    EngineAction::None
+                    return self.execute_command(cmd);
                 }
+
+                // Caret Navigation in Edit Controls and Documents (Arrow keys)
+                if key.modifiers.is_empty() || key.modifiers == bit_sr_core::input::KeyModifiers::CONTROL {
+                    match key.key {
+                        bit_sr_core::input::Key::UpArrow | bit_sr_core::input::Key::DownArrow => {
+                            if let Some(ref provider) = self.text_provider {
+                                std::thread::sleep(std::time::Duration::from_millis(15));
+                                if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Line) {
+                                    let announcement = if text.trim().is_empty() {
+                                        self.loc.t("format.blank").to_string()
+                                    } else {
+                                        text.trim_end_matches(&['\r', '\n'][..]).to_string()
+                                    };
+                                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                                    return EngineAction::Spoke(announcement);
+                                }
+                            }
+                        }
+                        bit_sr_core::input::Key::LeftArrow | bit_sr_core::input::Key::RightArrow => {
+                            if key.modifiers == bit_sr_core::input::KeyModifiers::CONTROL {
+                                if let Some(ref provider) = self.text_provider {
+                                    std::thread::sleep(std::time::Duration::from_millis(15));
+                                    if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Word) {
+                                        let announcement = if text.trim().is_empty() {
+                                            self.loc.t("format.blank").to_string()
+                                        } else {
+                                            text.trim().to_string()
+                                        };
+                                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                                        return EngineAction::Spoke(announcement);
+                                    }
+                                }
+                            } else {
+                                if let Some(ref provider) = self.text_provider {
+                                    std::thread::sleep(std::time::Duration::from_millis(15));
+                                    if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Character) {
+                                        let announcement = if text.is_empty() || text == "\r" || text == "\n" {
+                                            self.loc.t("format.blank").to_string()
+                                        } else if text == " " {
+                                            self.loc.t("key.space").to_string()
+                                        } else {
+                                            text
+                                        };
+                                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                                        return EngineAction::Spoke(announcement);
+                                    }
+                                }
+                            }
+                        }
+                        bit_sr_core::input::Key::PageUp | bit_sr_core::input::Key::PageDown => {
+                            if let Some(ref provider) = self.text_provider {
+                                std::thread::sleep(std::time::Duration::from_millis(20));
+                                if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Line) {
+                                    let announcement = if text.trim().is_empty() {
+                                        self.loc.t("format.blank").to_string()
+                                    } else {
+                                        text.trim_end_matches(&['\r', '\n'][..]).to_string()
+                                    };
+                                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                                    return EngineAction::Spoke(announcement);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Typing Echo: Printable characters, Space, Enter, Backspace, Delete
+                if !key.modifiers.intersects(
+                    bit_sr_core::input::KeyModifiers::CONTROL
+                        | bit_sr_core::input::KeyModifiers::ALT
+                        | bit_sr_core::input::KeyModifiers::SUPER
+                        | bit_sr_core::input::KeyModifiers::SR,
+                ) {
+                    match key.key {
+                        bit_sr_core::input::Key::Space => {
+                            let msg = self.loc.t("key.space");
+                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                            return EngineAction::Spoke(msg.to_string());
+                        }
+                        bit_sr_core::input::Key::Enter | bit_sr_core::input::Key::NumpadEnter => {
+                            let msg = self.loc.t("key.enter");
+                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                            return EngineAction::Spoke(msg.to_string());
+                        }
+                        bit_sr_core::input::Key::Backspace => {
+                            let msg = self.loc.t("key.backspace");
+                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                            return EngineAction::Spoke(msg.to_string());
+                        }
+                        bit_sr_core::input::Key::Delete => {
+                            let msg = self.loc.t("key.delete");
+                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                            return EngineAction::Spoke(msg.to_string());
+                        }
+                        _ => {
+                            if let Some(ref text) = key.text {
+                                let trimmed = text.trim();
+                                if !trimmed.is_empty() {
+                                    let _ = self.speech_hub.speak(trimmed, SpeechPriority::Now);
+                                    return EngineAction::Spoke(trimmed.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                EngineAction::None
             }
 
             AccessibilityEvent::Focus(node) => {
@@ -452,5 +567,158 @@ mod tests {
         let action_focus = coordinator.handle_event(AccessibilityEvent::Focus(checkbox));
         assert_eq!(action_focus, EngineAction::Spoke("स्वीकार करें, चेक बॉक्स, चेक किया गया".to_string()));
     }
+
+    struct MockTextProvider {
+        current_character: std::sync::Mutex<Option<String>>,
+        current_word: std::sync::Mutex<Option<String>>,
+        current_line: std::sync::Mutex<Option<String>>,
+    }
+
+    impl MockTextProvider {
+        fn new(char_text: Option<&str>, word_text: Option<&str>, line_text: Option<&str>) -> Self {
+            Self {
+                current_character: std::sync::Mutex::new(char_text.map(|s| s.to_string())),
+                current_word: std::sync::Mutex::new(word_text.map(|s| s.to_string())),
+                current_line: std::sync::Mutex::new(line_text.map(|s| s.to_string())),
+            }
+        }
+    }
+
+    impl bit_sr_core::TextProvider for MockTextProvider {
+        fn get_text_at_caret(&self, unit: bit_sr_core::TextUnit) -> Option<String> {
+            match unit {
+                bit_sr_core::TextUnit::Character => self.current_character.lock().unwrap().clone(),
+                bit_sr_core::TextUnit::Word => self.current_word.lock().unwrap().clone(),
+                bit_sr_core::TextUnit::Line | bit_sr_core::TextUnit::Paragraph | bit_sr_core::TextUnit::Document => {
+                    self.current_line.lock().unwrap().clone()
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_coordinator_typing_echo() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        let history = mock.clone();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+
+        // Echo typed character 'a'
+        let mut key_a = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::A,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        key_a.text = Some("a".to_string());
+        let action_a = coordinator.handle_event(AccessibilityEvent::Input(key_a));
+        assert_eq!(action_a, EngineAction::Spoke("a".to_string()));
+
+        // Space
+        let key_space = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Space,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_space = coordinator.handle_event(AccessibilityEvent::Input(key_space));
+        assert_eq!(action_space, EngineAction::Spoke("space".to_string()));
+
+        // Enter
+        let key_enter = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Enter,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_enter = coordinator.handle_event(AccessibilityEvent::Input(key_enter));
+        assert_eq!(action_enter, EngineAction::Spoke("enter".to_string()));
+
+        // Backspace
+        let key_backspace = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Backspace,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_backspace = coordinator.handle_event(AccessibilityEvent::Input(key_backspace));
+        assert_eq!(action_backspace, EngineAction::Spoke("backspace".to_string()));
+
+        // Delete
+        let key_delete = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Delete,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_delete = coordinator.handle_event(AccessibilityEvent::Input(key_delete));
+        assert_eq!(action_delete, EngineAction::Spoke("delete".to_string()));
+
+        assert_eq!(
+            history.get_spoken_history(),
+            vec!["a", "space", "enter", "backspace", "delete"]
+        );
+    }
+
+    #[test]
+    fn test_coordinator_caret_navigation() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        let history = mock.clone();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+        let provider = std::sync::Arc::new(MockTextProvider::new(
+            Some("h"),
+            Some("hello"),
+            Some("hello world\r\n"),
+        ));
+        coordinator.set_text_provider(provider.clone());
+
+        // DownArrow -> Line
+        let key_down = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::DownArrow,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_down = coordinator.handle_event(AccessibilityEvent::Input(key_down));
+        assert_eq!(action_down, EngineAction::Spoke("hello world".to_string()));
+
+        // RightArrow -> Character
+        let key_right = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::RightArrow,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_right = coordinator.handle_event(AccessibilityEvent::Input(key_right.clone()));
+        assert_eq!(action_right, EngineAction::Spoke("h".to_string()));
+
+        // Space character on RightArrow
+        *provider.current_character.lock().unwrap() = Some(" ".to_string());
+        let action_space_char = coordinator.handle_event(AccessibilityEvent::Input(key_right));
+        assert_eq!(action_space_char, EngineAction::Spoke("space".to_string()));
+
+        // Empty line -> blank
+        *provider.current_line.lock().unwrap() = Some("".to_string());
+        let key_up = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::UpArrow,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_up = coordinator.handle_event(AccessibilityEvent::Input(key_up));
+        assert_eq!(action_up, EngineAction::Spoke("blank".to_string()));
+
+        // Ctrl + RightArrow -> Word
+        let key_ctrl_right = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::RightArrow,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::CONTROL,
+        );
+        let action_word = coordinator.handle_event(AccessibilityEvent::Input(key_ctrl_right));
+        assert_eq!(action_word, EngineAction::Spoke("hello".to_string()));
+
+        assert_eq!(
+            history.get_spoken_history(),
+            vec!["hello world", "h", "space", "blank", "hello"]
+        );
+    }
 }
+
 

@@ -95,6 +95,13 @@ pub fn catalog() -> &'static [(&'static str, &'static str)] {
         ("format.pos_of_total", "{count} में से {pos}"),
         ("format.level", "स्तर {level}"),
         ("format.window_suffix", "{title}, विंडो"),
+        ("format.blank", "रिक्त"),
+
+        // Spoken Key Names
+        ("key.space", "स्पेस"),
+        ("key.enter", "एंटर"),
+        ("key.backspace", "बैकस्पेस"),
+        ("key.delete", "डिलीट"),
 
         // System Announcements
         ("system.speech_talk", "आवाज चालू"),
