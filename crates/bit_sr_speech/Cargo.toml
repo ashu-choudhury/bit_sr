@@ -1,0 +1,23 @@
+[package]
+name = "bit_sr_speech"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Pluggable speech synthesis, audio playback, and synthesizer driver hub for bit_sr"
+
+[dependencies]
+bit_sr_core = { path = "../bit_sr_core" }
+log = "0.4"
+crossbeam-channel = "0.5"
+
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.60"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.60"
+features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_Media_Speech",
+]

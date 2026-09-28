@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/bit_sr_core",
     "crates/bit_sr_platform_windows",
+    "crates/bit_sr_speech",
 ]
 
 [workspace.package]
