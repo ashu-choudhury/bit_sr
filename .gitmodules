@@ -1,0 +1,6 @@
+[submodule "references/orca"]
+	path = references/orca
+	url = https://github.com/GNOME/orca.git
+[submodule "references/nvda"]
+	path = references/nvda
+	url = https://github.com/nvaccess/nvda.git
