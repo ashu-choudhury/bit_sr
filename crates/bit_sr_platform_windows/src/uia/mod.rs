@@ -74,13 +74,15 @@ impl UiaClient {
             let prop_handler: IUIAutomationPropertyChangedEventHandler =
                 PropertyChangedHandler::new(tx.clone()).into();
             let properties = [UIA_NamePropertyId, UIA_ValueValuePropertyId, UIA_RangeValueValuePropertyId];
-            client.AddPropertyChangedEventHandlerNativeArray(
+            if let Err(e) = client.AddPropertyChangedEventHandlerNativeArray(
                 &root,
                 TreeScope_Subtree,
                 &cache_request,
                 &prop_handler,
                 &properties,
-            )?;
+            ) {
+                log::debug!("Subtree PropertyChangedEventHandler not supported on desktop root ({:?})", e);
+            }
 
             // Register NotificationEventHandler if supported (Windows 10 1709+)
             if let Ok(client5) = client.cast::<IUIAutomation5>() {
