@@ -4,6 +4,7 @@ members = [
     "crates/bit_sr_core",
     "crates/bit_sr_platform_windows",
     "crates/bit_sr_speech",
+    "crates/bit_sr_engine",
 ]
 
 [workspace.package]

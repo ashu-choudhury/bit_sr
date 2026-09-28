@@ -1,0 +1,21 @@
+[package]
+name = "bit_sr_engine"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Core screen reader engine coordinator, speech formatter, and event loop"
+
+[dependencies]
+bit_sr_core = { path = "../bit_sr_core" }
+bit_sr_speech = { path = "../bit_sr_speech" }
+crossbeam-channel = "0.5"
+log = "0.4"
+env_logger = "0.11"
+ctrlc = "3.4"
+
+[target.'cfg(windows)'.dependencies]
+bit_sr_platform_windows = { path = "../bit_sr_platform_windows" }
+
+[[bin]]
+name = "bit_sr"
+path = "src/main.rs"
