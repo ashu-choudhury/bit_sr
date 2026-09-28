@@ -87,11 +87,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    println!("[3/3] Starting screen reader engine...");
-    let _ = speech_hub.speak("bit_sr screen reader active.", bit_sr_speech::SpeechPriority::Now);
+    // Detect system UI locale on Windows or fallback to English
+    #[cfg(windows)]
+    let detected_locale = bit_sr_platform_windows::get_user_default_locale_name();
+    #[cfg(not(windows))]
+    let detected_locale: Option<String> = None;
 
-    // 4. Run Engine Coordinator
-    let mut coordinator = EngineCoordinator::new(speech_hub);
+    let initial_locale = detected_locale.as_deref().unwrap_or("en");
+
+    // 4. Run Engine Coordinator with localized catalogs
+    let mut coordinator = EngineCoordinator::with_locale(speech_hub, initial_locale);
+    let active_info = coordinator.loc.current_locale_info();
+    println!(
+        "[3/3] Starting screen reader engine (Locale: {} / {} [{}], detected: {:?})...",
+        active_info.code, active_info.english_name, active_info.native_name, detected_locale
+    );
+
+    let ready_msg = coordinator.loc.t("system.app_ready");
+    let _ = coordinator.speech_hub.speak(ready_msg, bit_sr_speech::SpeechPriority::Now);
 
     #[cfg(windows)]
     if let Some(title) = bit_sr_platform_windows::get_foreground_window_title() {

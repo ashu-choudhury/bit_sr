@@ -13,8 +13,18 @@ pub struct FormatterContext {
 pub struct SpeechFormatter;
 
 impl SpeechFormatter {
-    /// Formats a full, human-friendly speech announcement for a focused accessible node.
-    pub fn format_focus(node: &AccessibleNode, _context: &mut FormatterContext) -> String {
+    /// Formats a full, human-friendly speech announcement for a focused accessible node using the default English locale.
+    pub fn format_focus(node: &AccessibleNode, context: &mut FormatterContext) -> String {
+        let loc = bit_sr_core::LocalizationManager::default();
+        Self::format_focus_localized(node, context, &loc)
+    }
+
+    /// Formats a full, human-friendly speech announcement for a focused accessible node in the active locale.
+    pub fn format_focus_localized(
+        node: &AccessibleNode,
+        _context: &mut FormatterContext,
+        loc: &bit_sr_core::LocalizationManager,
+    ) -> String {
         let mut parts = Vec::new();
 
         // 1. Name or Label
@@ -37,16 +47,7 @@ impl SpeechFormatter {
         };
 
         if should_announce_role {
-            let role_name = match node.role {
-                Role::ListItem => "list item",
-                Role::CheckBox => "check box",
-                Role::RadioButton => "radio button",
-                Role::EditableText => "edit",
-                Role::ProgressBar => "progress bar",
-                Role::TreeViewItem => "tree item",
-                Role::TableCell => "cell",
-                _ => node.role.display_name(),
-            };
+            let role_name = node.role.display_name_localized(loc);
             parts.push(role_name.to_string());
         }
 
@@ -66,16 +67,16 @@ impl SpeechFormatter {
         // 5. States
         // Checkable state:
         if node.states.contains(State::CHECKED) {
-            parts.push("checked".to_string());
+            parts.push(loc.t("state.checked").to_string());
         } else if node.states.contains(State::CHECKABLE) {
-            parts.push("not checked".to_string());
+            parts.push(loc.t("state.not_checked").to_string());
         }
 
         // Expanded / Collapsed state:
         if node.states.contains(State::EXPANDED) {
-            parts.push("expanded".to_string());
+            parts.push(loc.t("state.expanded").to_string());
         } else if node.states.contains(State::COLLAPSED) {
-            parts.push("collapsed".to_string());
+            parts.push(loc.t("state.collapsed").to_string());
         }
 
         // Selected state (only if selected and role is selectable item)
@@ -85,35 +86,38 @@ impl SpeechFormatter {
                 Role::ListItem | Role::Tab | Role::TreeViewItem | Role::TableCell | Role::DataItem
             )
         {
-            parts.push("selected".to_string());
+            parts.push(loc.t("state.selected").to_string());
         }
 
         // Unavailable / Disabled:
         if node.states.contains(State::UNAVAILABLE) {
-            parts.push("unavailable".to_string());
+            parts.push(loc.t("state.unavailable").to_string());
         }
 
         // Read-only:
         if node.states.contains(State::READONLY) && is_edit {
-            parts.push("read only".to_string());
+            parts.push(loc.t("state.readonly").to_string());
         }
 
         // Required:
         if node.states.contains(State::REQUIRED) {
-            parts.push("required".to_string());
+            parts.push(loc.t("state.required").to_string());
         }
 
         // 6. Positional info ("3 of 12", "level 2")
         if let (Some(pos), Some(size)) = (node.position_info.position_in_set, node.position_info.size_of_set) {
             if size > 0 {
-                parts.push(format!("{} of {}", pos, size));
+                let pos_str = pos.to_string();
+                let size_str = size.to_string();
+                parts.push(loc.t_args("format.pos_of_total", &[("pos", &pos_str), ("count", &size_str)]));
             }
         } else if let Some(item_info) = &node.collection_item_info {
             parts.push(format!("row {}, column {}", item_info.row_index + 1, item_info.column_index + 1));
         }
 
         if let Some(level) = node.position_info.level {
-            parts.push(format!("level {}", level));
+            let level_str = level.to_string();
+            parts.push(loc.t_args("format.level", &[("level", &level_str)]));
         }
 
         // 7. Keyboard Shortcut
@@ -129,33 +133,43 @@ impl SpeechFormatter {
         parts.join(", ")
     }
 
-    /// Formats state changes for active/focused nodes.
+    /// Formats state changes for active/focused nodes using default English locale.
     pub fn format_state_change(state: State, is_set: bool) -> Option<&'static str> {
+        let loc = bit_sr_core::LocalizationManager::default();
+        Self::format_state_change_localized(state, is_set, &loc)
+    }
+
+    /// Formats state changes for active/focused nodes in the active locale.
+    pub fn format_state_change_localized(
+        state: State,
+        is_set: bool,
+        loc: &bit_sr_core::LocalizationManager,
+    ) -> Option<&'static str> {
         match state {
             State::CHECKED => {
                 if is_set {
-                    Some("checked")
+                    Some(loc.t("state.checked"))
                 } else {
-                    Some("not checked")
+                    Some(loc.t("state.not_checked"))
                 }
             }
             State::EXPANDED => {
                 if is_set {
-                    Some("expanded")
+                    Some(loc.t("state.expanded"))
                 } else {
-                    Some("collapsed")
+                    Some(loc.t("state.collapsed"))
                 }
             }
             State::COLLAPSED => {
                 if is_set {
-                    Some("collapsed")
+                    Some(loc.t("state.collapsed"))
                 } else {
-                    Some("expanded")
+                    Some(loc.t("state.expanded"))
                 }
             }
             State::SELECTED => {
                 if is_set {
-                    Some("selected")
+                    Some(loc.t("state.selected"))
                 } else {
                     None
                 }
@@ -239,4 +253,74 @@ mod tests {
         let text = SpeechFormatter::format_focus(&node, &mut ctx);
         assert_eq!(text, "Volume, slider, 75%");
     }
+
+    #[test]
+    fn test_format_focus_localized() {
+        let mut ctx = FormatterContext::default();
+        let node = AccessibleNode {
+            id: NodeId(10),
+            name: Some("Aceptar".to_string()),
+            role: Role::Button,
+            ..Default::default()
+        };
+
+        let loc_es = bit_sr_core::LocalizationManager::new("es");
+        let text_es = SpeechFormatter::format_focus_localized(&node, &mut ctx, &loc_es);
+        assert_eq!(text_es, "Aceptar, botón");
+
+        let loc_hi = bit_sr_core::LocalizationManager::new("hi");
+        let text_hi = SpeechFormatter::format_focus_localized(&node, &mut ctx, &loc_hi);
+        assert_eq!(text_hi, "Aceptar, बटन");
+
+        // Test checkbox with states in Spanish
+        let cb_node = AccessibleNode {
+            id: NodeId(11),
+            name: Some("Guardar contraseña".to_string()),
+            role: Role::CheckBox,
+            states: State::CHECKABLE | State::CHECKED,
+            ..Default::default()
+        };
+        let cb_es = SpeechFormatter::format_focus_localized(&cb_node, &mut ctx, &loc_es);
+        assert_eq!(cb_es, "Guardar contraseña, casilla de verificación, marcado");
+
+        // Test list item with position in Hindi
+        let list_node = AccessibleNode {
+            id: NodeId(12),
+            name: Some("दस्तावेज़".to_string()),
+            role: Role::ListItem,
+            states: State::SELECTED,
+            position_info: PositionInfo {
+                position_in_set: Some(2),
+                size_of_set: Some(8),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let list_hi = SpeechFormatter::format_focus_localized(&list_node, &mut ctx, &loc_hi);
+        assert_eq!(list_hi, "दस्तावेज़, सूची आइटम, चयनित, 8 में से 2");
+    }
+
+    #[test]
+    fn test_format_state_change_localized() {
+        let loc_es = bit_sr_core::LocalizationManager::new("es");
+        assert_eq!(
+            SpeechFormatter::format_state_change_localized(State::CHECKED, true, &loc_es),
+            Some("marcado")
+        );
+        assert_eq!(
+            SpeechFormatter::format_state_change_localized(State::CHECKED, false, &loc_es),
+            Some("no marcado")
+        );
+
+        let loc_de = bit_sr_core::LocalizationManager::new("de");
+        assert_eq!(
+            SpeechFormatter::format_state_change_localized(State::EXPANDED, true, &loc_de),
+            Some("erweitert")
+        );
+        assert_eq!(
+            SpeechFormatter::format_state_change_localized(State::EXPANDED, false, &loc_de),
+            Some("reduziert")
+        );
+    }
 }
+

@@ -2,6 +2,7 @@
 
 pub mod actions;
 pub mod events;
+pub mod i18n;
 pub mod input;
 pub mod node;
 pub mod roles;
@@ -10,6 +11,7 @@ pub mod tree;
 
 pub use actions::{AccessibleAction, ActionCapabilities, ActionError, ActionPerformer};
 pub use events::AccessibilityEvent;
+pub use i18n::{LocaleInfo, LocalizationManager};
 pub use input::{
     GestureParseError, InputGesture, Key, KeyAction, KeyEvent, KeyModifiers, MouseAction,
     MouseEvent, SRKeyAction, SRKeyConfig, SRModifierTracker,
@@ -21,3 +23,4 @@ pub use node::{
 pub use roles::Role;
 pub use states::State;
 pub use tree::{AccessibilityTree, NavDirection, NavFilter};
+

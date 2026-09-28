@@ -39,3 +39,34 @@ pub fn get_foreground_window_title() -> Option<String> {
         None
     }
 }
+
+/// Queries the Windows operating system default user UI locale name (e.g., "en-US", "es-ES", "hi-IN").
+pub fn get_user_default_locale_name() -> Option<String> {
+    unsafe {
+        let mut buffer = [0u16; 85];
+        let len = windows::Win32::Globalization::GetUserDefaultLocaleName(&mut buffer);
+        if len > 1 {
+            let name = String::from_utf16_lossy(&buffer[..(len - 1) as usize]);
+            let trimmed = name.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_user_default_locale_name() {
+        let locale = get_user_default_locale_name();
+        assert!(locale.is_some(), "Expected Windows to return a user default locale name");
+        let loc_str = locale.unwrap();
+        assert!(!loc_str.is_empty());
+        println!("Detected Windows default locale: {}", loc_str);
+    }
+}
+

@@ -20,16 +20,40 @@ pub struct EngineCoordinator {
     pub focus_tracker: FocusTracker,
     pub command_dispatcher: CommandDispatcher,
     pub formatter_context: FormatterContext,
+    pub loc: std::sync::Arc<bit_sr_core::LocalizationManager>,
 }
 
 impl EngineCoordinator {
     pub fn new(speech_hub: SpeechHub) -> Self {
+        Self::with_locale(speech_hub, "en")
+    }
+
+    pub fn with_locale(speech_hub: SpeechHub, locale: &str) -> Self {
         Self {
             speech_hub,
             focus_tracker: FocusTracker::new(),
             command_dispatcher: CommandDispatcher::new(),
             formatter_context: FormatterContext::default(),
+            loc: std::sync::Arc::new(bit_sr_core::LocalizationManager::new(locale)),
         }
+    }
+
+    pub fn with_localization(
+        speech_hub: SpeechHub,
+        loc: std::sync::Arc<bit_sr_core::LocalizationManager>,
+    ) -> Self {
+        Self {
+            speech_hub,
+            focus_tracker: FocusTracker::new(),
+            command_dispatcher: CommandDispatcher::new(),
+            formatter_context: FormatterContext::default(),
+            loc,
+        }
+    }
+
+    /// Sets the active locale at runtime.
+    pub fn set_locale(&self, locale: &str) {
+        self.loc.set_locale(locale);
     }
 
     /// Handles a single incoming event from the platform.
@@ -41,7 +65,11 @@ impl EngineCoordinator {
             }
 
             AccessibilityEvent::CapsLockToggled(is_on) => {
-                let msg = if is_on { "Caps Lock on" } else { "Caps Lock off" };
+                let msg = if is_on {
+                    self.loc.t("system.capslock_on")
+                } else {
+                    self.loc.t("system.capslock_off")
+                };
                 let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg.to_string())
             }
@@ -59,11 +87,11 @@ impl EngineCoordinator {
                             self.command_dispatcher.input_help_active = false;
                             #[cfg(windows)]
                             bit_sr_platform_windows::set_input_help_active(false);
-                            let msg = "Input help off";
+                            let msg = self.loc.t("system.input_help_off");
                             let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                             return EngineAction::Spoke(msg.to_string());
                         }
-                        let announcement = format!("{}: {}", gesture.display_name(), cmd.display_name());
+                        let announcement = format!("{}: {}", gesture.display_name(), cmd.display_name_localized(&self.loc));
                         let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
                         return EngineAction::Spoke(announcement);
                     } else {
@@ -94,11 +122,16 @@ impl EngineCoordinator {
 
                 if let FocusTransition::NewWindow { window_title } = transition {
                     if let Some(title) = window_title {
-                        announcement.push_str(&format!("{}, window, ", title));
+                        let win_prefix = self.loc.t_args("format.window_suffix", &[("title", &title)]);
+                        announcement.push_str(&format!("{}, ", win_prefix));
                     }
                 }
 
-                let node_text = SpeechFormatter::format_focus(focused_node, &mut self.formatter_context);
+                let node_text = SpeechFormatter::format_focus_localized(
+                    focused_node,
+                    &mut self.formatter_context,
+                    &self.loc,
+                );
                 announcement.push_str(&node_text);
 
                 if !announcement.trim().is_empty() {
@@ -112,7 +145,7 @@ impl EngineCoordinator {
             AccessibilityEvent::WindowActivated(node) => {
                 let title = self.focus_tracker.on_window_activated(&node);
                 if let Some(t) = title {
-                    let announcement = format!("{}, window", t);
+                    let announcement = self.loc.t_args("format.window_suffix", &[("title", &t)]);
                     let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
                     EngineAction::Spoke(announcement)
                 } else {
@@ -124,7 +157,11 @@ impl EngineCoordinator {
                 // Only speak state changes for the current focused node
                 if let Some(focused) = self.focus_tracker.current_focus() {
                     if focused.id == node.id {
-                        if let Some(state_str) = SpeechFormatter::format_state_change(state, is_set) {
+                        if let Some(state_str) = SpeechFormatter::format_state_change_localized(
+                            state,
+                            is_set,
+                            &self.loc,
+                        ) {
                             let _ = self.speech_hub.speak(state_str, SpeechPriority::Now);
                             return EngineAction::Spoke(state_str.to_string());
                         }
@@ -153,7 +190,8 @@ impl EngineCoordinator {
     fn execute_command(&mut self, cmd: ScreenReaderCommand) -> EngineAction {
         match cmd {
             ScreenReaderCommand::Quit => {
-                let _ = self.speech_hub.speak("Exiting bit_sr", SpeechPriority::Now);
+                let msg = self.loc.t("system.app_exit");
+                let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                 EngineAction::Quit
             }
 
@@ -171,18 +209,22 @@ impl EngineCoordinator {
                     .as_deref()
                     .or_else(|| self.focus_tracker.current_window_title())
                     .unwrap_or("Unknown window");
-                let msg = format!("{}, window", title);
+                let msg = self.loc.t_args("format.window_suffix", &[("title", title)]);
                 let _ = self.speech_hub.speak(&msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg)
             }
 
             ScreenReaderCommand::RepeatFocus => {
                 if let Some(focused) = self.focus_tracker.current_focus() {
-                    let text = SpeechFormatter::format_focus(focused, &mut self.formatter_context);
+                    let text = SpeechFormatter::format_focus_localized(
+                        focused,
+                        &mut self.formatter_context,
+                        &self.loc,
+                    );
                     let _ = self.speech_hub.speak(&text, SpeechPriority::Now);
                     EngineAction::Spoke(text)
                 } else {
-                    let msg = "No element focused";
+                    let msg = self.loc.t("system.no_focus");
                     let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                     EngineAction::Spoke(msg.to_string())
                 }
@@ -190,8 +232,8 @@ impl EngineCoordinator {
 
             ScreenReaderCommand::ToggleSpeechMode => {
                 let msg = match self.command_dispatcher.speech_mode {
-                    SpeechMode::Talk => "Speech on",
-                    SpeechMode::Mute => "Speech muted",
+                    SpeechMode::Talk => self.loc.t("system.speech_talk"),
+                    SpeechMode::Mute => self.loc.t("system.speech_mute"),
                 };
                 let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg.to_string())
@@ -200,7 +242,8 @@ impl EngineCoordinator {
             ScreenReaderCommand::VolumeUp => {
                 let vol = (self.speech_hub.get_volume() + 10).min(100);
                 let _ = self.speech_hub.set_volume(vol);
-                let msg = format!("Volume {}", vol);
+                let vol_str = vol.to_string();
+                let msg = self.loc.t_args("system.volume", &[("vol", &vol_str)]);
                 let _ = self.speech_hub.speak(&msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg)
             }
@@ -208,7 +251,8 @@ impl EngineCoordinator {
             ScreenReaderCommand::VolumeDown => {
                 let vol = self.speech_hub.get_volume().saturating_sub(10);
                 let _ = self.speech_hub.set_volume(vol);
-                let msg = format!("Volume {}", vol);
+                let vol_str = vol.to_string();
+                let msg = self.loc.t_args("system.volume", &[("vol", &vol_str)]);
                 let _ = self.speech_hub.speak(&msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg)
             }
@@ -216,7 +260,8 @@ impl EngineCoordinator {
             ScreenReaderCommand::RateFaster => {
                 let rate = (self.speech_hub.get_rate() + 1).min(10);
                 let _ = self.speech_hub.set_rate(rate);
-                let msg = format!("Rate {}", rate);
+                let rate_str = rate.to_string();
+                let msg = self.loc.t_args("system.rate", &[("rate", &rate_str)]);
                 let _ = self.speech_hub.speak(&msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg)
             }
@@ -224,7 +269,8 @@ impl EngineCoordinator {
             ScreenReaderCommand::RateSlower => {
                 let rate = (self.speech_hub.get_rate() - 1).max(-10);
                 let _ = self.speech_hub.set_rate(rate);
-                let msg = format!("Rate {}", rate);
+                let rate_str = rate.to_string();
+                let msg = self.loc.t_args("system.rate", &[("rate", &rate_str)]);
                 let _ = self.speech_hub.speak(&msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg)
             }
@@ -234,9 +280,9 @@ impl EngineCoordinator {
                 bit_sr_platform_windows::set_input_help_active(self.command_dispatcher.input_help_active);
 
                 let msg = if self.command_dispatcher.input_help_active {
-                    "Input help on"
+                    self.loc.t("system.input_help_on")
                 } else {
-                    "Input help off"
+                    self.loc.t("system.input_help_off")
                 };
                 let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg.to_string())
@@ -353,4 +399,58 @@ mod tests {
         assert_eq!(action_off, EngineAction::Spoke("Input help off".to_string()));
         assert!(!coordinator.command_dispatcher.input_help_active);
     }
+
+    #[test]
+    fn test_coordinator_localized_spanish() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        let _history = mock.clone();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::with_locale(hub, "es");
+
+        // CapsLock toggle in Spanish
+        let action = coordinator.handle_event(AccessibilityEvent::CapsLockToggled(true));
+        assert_eq!(action, EngineAction::Spoke("Bloqueo de mayúsculas activado".to_string()));
+
+        // Speech mode toggle in Spanish
+        let action_mute = coordinator.execute_command(ScreenReaderCommand::ToggleSpeechMode);
+        assert_eq!(action_mute, EngineAction::Spoke("Voz activada".to_string()));
+
+        // Focus in Spanish
+        let button = bit_sr_core::node::AccessibleNode {
+            id: NodeId(2),
+            name: Some("Enviar".to_string()),
+            role: Role::Button,
+            states: State::FOCUSABLE | State::FOCUSED,
+            ..Default::default()
+        };
+        let action_focus = coordinator.handle_event(AccessibilityEvent::Focus(button));
+        assert_eq!(action_focus, EngineAction::Spoke("Enviar, botón".to_string()));
+    }
+
+    #[test]
+    fn test_coordinator_localized_hindi() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::with_locale(hub, "hi");
+
+        // CapsLock toggle in Hindi
+        let action = coordinator.handle_event(AccessibilityEvent::CapsLockToggled(false));
+        assert_eq!(action, EngineAction::Spoke("कैप्स लॉक बंद".to_string()));
+
+        // Focus in Hindi
+        let checkbox = bit_sr_core::node::AccessibleNode {
+            id: NodeId(3),
+            name: Some("स्वीकार करें".to_string()),
+            role: Role::CheckBox,
+            states: State::CHECKABLE | State::CHECKED,
+            ..Default::default()
+        };
+        let action_focus = coordinator.handle_event(AccessibilityEvent::Focus(checkbox));
+        assert_eq!(action_focus, EngineAction::Spoke("स्वीकार करें, चेक बॉक्स, चेक किया गया".to_string()));
+    }
 }
+

@@ -141,11 +141,87 @@ impl Role {
             Self::Math => "math",
         }
     }
+
+    /// Returns the canonical translation key for the role in i18n catalogs.
+    pub fn i18n_key(&self) -> &'static str {
+        match self {
+            Self::Unknown => "role.unknown",
+            Self::Window => "role.window",
+            Self::TitleBar => "role.titlebar",
+            Self::Pane => "role.pane",
+            Self::Dialog => "role.dialog",
+            Self::CheckBox => "role.checkbox",
+            Self::RadioButton => "role.radiobutton",
+            Self::StaticText => "role.statictext",
+            Self::EditableText => "role.editabletext",
+            Self::Button => "role.button",
+            Self::MenuBar => "role.menubar",
+            Self::MenuItem => "role.menuitem",
+            Self::PopupMenu => "role.popupmenu",
+            Self::ComboBox => "role.combobox",
+            Self::List => "role.list",
+            Self::ListItem => "role.listitem",
+            Self::Graphic => "role.graphic",
+            Self::HelpBalloon => "role.helpballoon",
+            Self::ToolTip => "role.tooltip",
+            Self::Link => "role.link",
+            Self::TreeView => "role.treeview",
+            Self::TreeViewItem => "role.treeviewitem",
+            Self::Tab => "role.tab",
+            Self::TabControl => "role.tabcontrol",
+            Self::Slider => "role.slider",
+            Self::ProgressBar => "role.progressbar",
+            Self::ScrollBar => "role.scrollbar",
+            Self::StatusBar => "role.statusbar",
+            Self::Table => "role.table",
+            Self::TableCell => "role.tablecell",
+            Self::TableColumn => "role.tablecolumn",
+            Self::TableRow => "role.tablerow",
+            Self::TableColumnHeader => "role.columnheader",
+            Self::TableRowHeader => "role.rowheader",
+            Self::Frame => "role.frame",
+            Self::ToolBar => "role.toolbar",
+            Self::DropDownButton => "role.dropdownbutton",
+            Self::Clock => "role.clock",
+            Self::Separator => "role.separator",
+            Self::Form => "role.form",
+            Self::Heading => "role.heading",
+            Self::Paragraph => "role.paragraph",
+            Self::Document => "role.document",
+            Self::Animation => "role.animation",
+            Self::Application => "role.application",
+            Self::Box => "role.box",
+            Self::Grouping => "role.grouping",
+            Self::PropertyPage => "role.propertypage",
+            Self::Alert => "role.alert",
+            Self::Border => "role.border",
+            Self::SplitButton => "role.splitbutton",
+            Self::DataGrid => "role.datagrid",
+            Self::DataItem => "role.dataitem",
+            Self::Header => "role.header",
+            Self::HeaderItem => "role.headeritem",
+            Self::Thumb => "role.thumb",
+            Self::Calendar => "role.calendar",
+            Self::SpinButton => "role.spinbutton",
+            Self::Section => "role.section",
+            Self::Landmark => "role.landmark",
+            Self::Switch => "role.switch",
+            Self::Terminal => "role.terminal",
+            Self::TreeGrid => "role.treegrid",
+            Self::Math => "role.math",
+        }
+    }
+
+    /// Localized human-friendly display string for speech synthesis and logging.
+    pub fn display_name_localized(&self, loc: &crate::i18n::LocalizationManager) -> &'static str {
+        loc.t(self.i18n_key())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::LocalizationManager;
 
     #[test]
     fn test_role_display_names() {
@@ -154,5 +230,19 @@ mod tests {
         assert_eq!(Role::ListItem.display_name(), "list item");
         assert_eq!(Role::TreeViewItem.display_name(), "tree item");
         assert_eq!(Role::Unknown.display_name(), "unknown");
+    }
+
+    #[test]
+    fn test_role_localized_display_names() {
+        let loc_en = LocalizationManager::new("en");
+        assert_eq!(Role::Button.display_name_localized(&loc_en), "button");
+
+        let loc_es = LocalizationManager::new("es");
+        assert_eq!(Role::Button.display_name_localized(&loc_es), "botón");
+        assert_eq!(Role::CheckBox.display_name_localized(&loc_es), "casilla de verificación");
+
+        let loc_hi = LocalizationManager::new("hi");
+        assert_eq!(Role::Button.display_name_localized(&loc_hi), "बटन");
+        assert_eq!(Role::Window.display_name_localized(&loc_hi), "विंडो");
     }
 }

@@ -57,6 +57,26 @@ impl ScreenReaderCommand {
         }
     }
 
+    /// Translation key for the command in i18n catalogs.
+    pub fn i18n_key(&self) -> &'static str {
+        match self {
+            Self::AnnounceTitle => "cmd.announce_title",
+            Self::RepeatFocus => "cmd.repeat_focus",
+            Self::ToggleSpeechMode => "cmd.toggle_speech_mode",
+            Self::VolumeUp => "cmd.volume_up",
+            Self::VolumeDown => "cmd.volume_down",
+            Self::RateFaster => "cmd.rate_faster",
+            Self::RateSlower => "cmd.rate_slower",
+            Self::ToggleInputHelp => "cmd.toggle_input_help",
+            Self::Quit => "cmd.quit",
+        }
+    }
+
+    /// Localized human-friendly display name for UI and Input Help mode.
+    pub fn display_name_localized(&self, loc: &bit_sr_core::LocalizationManager) -> &'static str {
+        loc.t(self.i18n_key())
+    }
+
     /// Human-friendly display name for UI and Input Help mode.
     pub fn display_name(&self) -> &'static str {
         match self {

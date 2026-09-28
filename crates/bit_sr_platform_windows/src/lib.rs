@@ -14,7 +14,7 @@ pub mod watchdog;
 pub use apps::ExplorerFilter;
 pub use com::ComGuard;
 pub use common_controls::{EditControlReader, SysListView32Reader};
-pub use desktop::{get_foreground_window_title, is_secure_desktop_active};
+pub use desktop::{get_foreground_window_title, get_user_default_locale_name, is_secure_desktop_active};
 pub use error::{Error, Result};
 pub use input::{
     get_current_modifiers, is_input_help_active, set_input_help_active, KeyboardHookHandle,

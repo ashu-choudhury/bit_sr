@@ -90,11 +90,52 @@ impl State {
         }
         list
     }
+
+    /// Formats active states into localized spoken phrases using the given `LocalizationManager`.
+    pub fn to_speech_strings_localized(&self, loc: &crate::i18n::LocalizationManager) -> Vec<&'static str> {
+        let mut list = Vec::new();
+        if self.contains(Self::UNAVAILABLE) {
+            list.push(loc.t("state.unavailable"));
+        }
+        if self.contains(Self::CHECKED) {
+            list.push(loc.t("state.checked"));
+        } else if self.contains(Self::HALFCHECKED) {
+            list.push(loc.t("state.halfchecked"));
+        }
+        if self.contains(Self::PRESSED) {
+            list.push(loc.t("state.pressed"));
+        }
+        if self.contains(Self::EXPANDED) {
+            list.push(loc.t("state.expanded"));
+        } else if self.contains(Self::COLLAPSED) {
+            list.push(loc.t("state.collapsed"));
+        }
+        if self.contains(Self::SELECTED) {
+            list.push(loc.t("state.selected"));
+        }
+        if self.contains(Self::BUSY) {
+            list.push(loc.t("state.busy"));
+        }
+        if self.contains(Self::READONLY) {
+            list.push(loc.t("state.readonly"));
+        }
+        if self.contains(Self::REQUIRED) {
+            list.push(loc.t("state.required"));
+        }
+        if self.contains(Self::INVALID_ENTRY) {
+            list.push(loc.t("state.invalid_entry"));
+        }
+        if self.contains(Self::HASPOPUP) {
+            list.push(loc.t("state.haspopup"));
+        }
+        list
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::LocalizationManager;
 
     #[test]
     fn test_state_to_speech_strings() {
@@ -104,5 +145,16 @@ mod tests {
 
         let expanded_selected = State::EXPANDED | State::SELECTED;
         assert_eq!(expanded_selected.to_speech_strings(), vec!["expanded", "selected"]);
+    }
+
+    #[test]
+    fn test_state_localized_speech_strings() {
+        let state = State::CHECKED | State::UNAVAILABLE;
+
+        let loc_es = LocalizationManager::new("es");
+        assert_eq!(state.to_speech_strings_localized(&loc_es), vec!["no disponible", "marcado"]);
+
+        let loc_hi = LocalizationManager::new("hi");
+        assert_eq!(state.to_speech_strings_localized(&loc_hi), vec!["अनुपलब्ध", "चेक किया गया"]);
     }
 }
