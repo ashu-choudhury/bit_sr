@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     println!("[2/3] Hooking Windows UI Automation and low-level keyboard...");
     #[cfg(windows)]
-    let mut platform = match WindowsPlatform::start(event_tx) {
+    let mut platform = match WindowsPlatform::start(event_tx.clone()) {
         Ok(p) => {
             println!("  Windows platform hooks registered successfully!");
             p
@@ -99,6 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Run Engine Coordinator with localized catalogs
     let mut coordinator = EngineCoordinator::with_locale(speech_hub, initial_locale);
+    coordinator.set_event_tx(event_tx.clone());
     let active_info = coordinator.loc.current_locale_info();
     println!(
         "[3/3] Starting screen reader engine (Locale: {} / {} [{}], detected: {:?})...",

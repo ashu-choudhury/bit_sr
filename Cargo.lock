@@ -642,7 +642,6 @@ dependencies = [
  "slint",
  "slint-build",
  "thiserror 2.0.21",
- "windows 0.60.0",
 ]
 
 [[package]]

@@ -24,6 +24,7 @@ pub struct EngineCoordinator {
     pub text_provider: Option<std::sync::Arc<dyn bit_sr_core::TextProvider>>,
     pub last_selection: Option<String>,
     pub ui_handle: Option<bit_sr_ui::UiHandle>,
+    pub event_tx: Option<crossbeam_channel::Sender<AccessibilityEvent>>,
 }
 
 impl EngineCoordinator {
@@ -41,6 +42,7 @@ impl EngineCoordinator {
             text_provider: None,
             last_selection: None,
             ui_handle: None,
+            event_tx: None,
         }
     }
 
@@ -57,12 +59,18 @@ impl EngineCoordinator {
             text_provider: None,
             last_selection: None,
             ui_handle: None,
+            event_tx: None,
         }
     }
 
     /// Sets the UI handle for coordinating GUI windows and menus.
     pub fn set_ui_handle(&mut self, ui_handle: bit_sr_ui::UiHandle) {
         self.ui_handle = Some(ui_handle);
+    }
+
+    /// Sets the event sender for dispatching asynchronous platform events.
+    pub fn set_event_tx(&mut self, tx: crossbeam_channel::Sender<AccessibilityEvent>) {
+        self.event_tx = Some(tx);
     }
 
     /// Sets the platform text provider for reading text at the caret.
@@ -91,6 +99,39 @@ impl EngineCoordinator {
                 };
                 let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg.to_string())
+            }
+
+            AccessibilityEvent::MenuAction(action) => {
+                match action {
+                    bit_sr_core::menu::MenuAction::OpenSettings
+                    | bit_sr_core::menu::MenuAction::OpenSpeechSettings
+                    | bit_sr_core::menu::MenuAction::OpenKeyboardSettings
+                    | bit_sr_core::menu::MenuAction::OpenPluginManager => {
+                        if let Some(ref ui) = self.ui_handle {
+                            ui.open_settings();
+                        }
+                        EngineAction::None
+                    }
+                    bit_sr_core::menu::MenuAction::SetSpeechModeTalk => {
+                        self.command_dispatcher.speech_mode = SpeechMode::Talk;
+                        let msg = self.loc.t("system.speech_talk");
+                        let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                        EngineAction::Spoke(msg.to_string())
+                    }
+                    bit_sr_core::menu::MenuAction::SetSpeechModeMute => {
+                        self.command_dispatcher.speech_mode = SpeechMode::Mute;
+                        let msg = self.loc.t("system.speech_mute");
+                        let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                        EngineAction::Spoke(msg.to_string())
+                    }
+                    bit_sr_core::menu::MenuAction::ToggleInputHelp => {
+                        self.execute_command(ScreenReaderCommand::ToggleInputHelp)
+                    }
+                    bit_sr_core::menu::MenuAction::Quit => {
+                        self.execute_command(ScreenReaderCommand::Quit)
+                    }
+                    _ => EngineAction::None,
+                }
             }
 
             AccessibilityEvent::Input(key) => {
@@ -659,8 +700,9 @@ impl EngineCoordinator {
             }
 
             ScreenReaderCommand::OpenMenu => {
-                if let Some(ref ui) = self.ui_handle {
-                    ui.open_menu();
+                #[cfg(windows)]
+                if let Some(ref tx) = self.event_tx {
+                    bit_sr_platform_windows::open_menu_async(tx.clone());
                 }
                 EngineAction::None
             }
@@ -684,34 +726,6 @@ impl EngineCoordinator {
 
             for evt in ui_events {
                 match evt {
-                    bit_sr_ui::UiEvent::Action(action) => match action {
-                        bit_sr_ui::MenuAction::OpenSettings
-                        | bit_sr_ui::MenuAction::OpenSpeechSettings
-                        | bit_sr_ui::MenuAction::OpenKeyboardSettings
-                        | bit_sr_ui::MenuAction::OpenPluginManager => {
-                            if let Some(ref ui) = self.ui_handle {
-                                ui.open_settings();
-                            }
-                        }
-                        bit_sr_ui::MenuAction::SetSpeechModeTalk => {
-                            self.command_dispatcher.speech_mode = SpeechMode::Talk;
-                            let msg = self.loc.t("system.speech_talk");
-                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
-                        }
-                        bit_sr_ui::MenuAction::SetSpeechModeMute => {
-                            self.command_dispatcher.speech_mode = SpeechMode::Mute;
-                            let msg = self.loc.t("system.speech_mute");
-                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
-                        }
-                        bit_sr_ui::MenuAction::ToggleInputHelp => {
-                            let _ = self.execute_command(ScreenReaderCommand::ToggleInputHelp);
-                        }
-                        bit_sr_ui::MenuAction::Quit => {
-                            let _ = self.execute_command(ScreenReaderCommand::Quit);
-                            return;
-                        }
-                        _ => {}
-                    },
                     bit_sr_ui::UiEvent::SettingsSaved(settings) => {
                         let _ = self.speech_hub.set_rate(settings.speech_rate as i32);
                         let _ = self.speech_hub.set_volume(settings.speech_volume as u16);
@@ -1152,6 +1166,32 @@ mod tests {
             history.get_spoken_history(),
             vec!["selected H", "selected e", "unselected e", "unselected H", "selected all"]
         );
+    }
+
+    #[test]
+    fn test_coordinator_menu_action() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        let history = mock.clone();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+
+        // Mute via menu action
+        let action = coordinator.handle_event(AccessibilityEvent::MenuAction(bit_sr_core::menu::MenuAction::SetSpeechModeMute));
+        assert_eq!(action, EngineAction::Spoke("Speech muted".to_string()));
+        assert_eq!(coordinator.command_dispatcher.speech_mode, SpeechMode::Mute);
+
+        // Talk via menu action
+        let action2 = coordinator.handle_event(AccessibilityEvent::MenuAction(bit_sr_core::menu::MenuAction::SetSpeechModeTalk));
+        assert_eq!(action2, EngineAction::Spoke("Speech on".to_string()));
+        assert_eq!(coordinator.command_dispatcher.speech_mode, SpeechMode::Talk);
+
+        // Quit via menu action
+        let action3 = coordinator.handle_event(AccessibilityEvent::MenuAction(bit_sr_core::menu::MenuAction::Quit));
+        assert_eq!(action3, EngineAction::Quit);
+
+        assert_eq!(history.get_spoken_history(), vec!["Speech muted", "Speech on", "Exiting bit_sr"]);
     }
 }
 

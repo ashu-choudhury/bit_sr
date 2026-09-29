@@ -5,6 +5,7 @@ pub mod actions;
 pub mod events;
 pub mod i18n;
 pub mod input;
+pub mod menu;
 pub mod node;
 pub mod roles;
 pub mod states;
@@ -18,6 +19,7 @@ pub use input::{
     GestureParseError, InputGesture, Key, KeyAction, KeyEvent, KeyModifiers, MouseAction,
     MouseEvent, SRKeyAction, SRKeyConfig, SRModifierTracker,
 };
+pub use menu::{MenuAction, MenuItemData};
 pub use node::{
     AccessibleNode, CollectionInfo, CollectionItemInfo, LiveRegion, NodeId, PositionInfo,
     RangeInfo, Rect, TextSelection,

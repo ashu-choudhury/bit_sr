@@ -57,4 +57,7 @@ pub enum AccessibilityEvent {
 
     /// Instant speech cancellation requested by keypress.
     SpeechInterrupt,
+
+    /// Screen reader action triggered from a menu or tray.
+    MenuAction(crate::menu::MenuAction),
 }

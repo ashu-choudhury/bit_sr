@@ -7,6 +7,7 @@ pub mod common_controls;
 pub mod desktop;
 pub mod error;
 pub mod input;
+pub mod menu;
 pub mod msaa;
 pub mod text;
 pub mod uia;
@@ -20,6 +21,7 @@ pub use error::{Error, Result};
 pub use input::{
     get_current_modifiers, is_input_help_active, set_input_help_active, KeyboardHookHandle,
 };
+pub use menu::{open_menu_async, show_native_popup_menu};
 pub use msaa::{MsaaElement, WinEventHookHandle};
 pub use text::WindowsTextProvider;
 pub use uia::{create_base_cache_request, Patterns, TreeNavigator, UiaClient, UiaElement};

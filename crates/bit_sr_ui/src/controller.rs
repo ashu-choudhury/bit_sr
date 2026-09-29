@@ -1,9 +1,9 @@
 //! UI Controller and Asynchronous Event Loop Coordinator.
 //!
-//! Manages Menu and Settings windows on a dedicated UI thread,
+//! Manages the Slint Settings Window on a dedicated UI thread,
 //! communicating with the screen reader engine coordinator via non-blocking channels.
+//! Completely platform-agnostic and free of OS-specific window handles.
 
-use crate::menu::MenuAction;
 use crate::settings::UiSettings;
 use crate::SettingsWindow;
 use crossbeam_channel::{bounded, Receiver, Sender};
@@ -14,19 +14,17 @@ use std::thread;
 
 #[derive(Debug, Clone)]
 pub enum UiCommand {
-    OpenMenu,
     OpenSettings,
-    CloseMenu,
+    CloseSettings,
     CloseAll,
 }
 
 #[derive(Debug, Clone)]
 pub enum UiEvent {
-    Action(MenuAction),
     SettingsSaved(UiSettings),
 }
 
-/// Handle held by the Engine Coordinator to communicate with the UI thread.
+/// Handle held by the Engine Coordinator to communicate with the Slint UI thread.
 #[derive(Clone)]
 pub struct UiHandle {
     command_tx: Sender<UiCommand>,
@@ -55,17 +53,22 @@ impl UiHandle {
         })
     }
 
-    /// Sends a command to open the left-side screen reader menu.
-    pub fn open_menu(&self) {
-        let _ = self.command_tx.try_send(UiCommand::OpenMenu);
-    }
-
     /// Sends a command to open the Settings window.
     pub fn open_settings(&self) {
         let _ = self.command_tx.try_send(UiCommand::OpenSettings);
     }
 
-    /// Receives asynchronous UI events emitted by the user (menu actions, settings changes).
+    /// Sends a command to close the Settings window.
+    pub fn close_settings(&self) {
+        let _ = self.command_tx.try_send(UiCommand::CloseSettings);
+    }
+
+    /// Sends a command to close all GUI windows.
+    pub fn close_all(&self) {
+        let _ = self.command_tx.try_send(UiCommand::CloseAll);
+    }
+
+    /// Receives asynchronous UI events emitted by the user (settings changes).
     pub fn try_recv_event(&self) -> Option<UiEvent> {
         self.event_rx.try_recv().ok()
     }
@@ -93,52 +96,28 @@ fn run_ui_loop(
         }
     };
 
-    setup_settings_callbacks(&settings, evt_tx.clone());
+    setup_settings_callbacks(&settings, evt_tx);
 
     let settings_weak = settings.as_weak();
-    let evt_tx_cmd = evt_tx;
 
-    // Background thread that handles commands
+    // Background bridge thread that processes commands from the engine coordinator
     thread::Builder::new()
         .name("bit_sr_ui_bridge".to_string())
         .spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
                 let s_weak = settings_weak.clone();
-                let evt_tx_action = evt_tx_cmd.clone();
 
                 match cmd {
-                    UiCommand::OpenMenu => {
-                        #[cfg(windows)]
-                        {
-                            // Launch the authentic native Windows popup menu (identical to NVDA's PopupMenu)
-                            if let Some(action) = crate::menu::show_native_popup_menu(24, -1) {
-                                if action == MenuAction::OpenSettings
-                                    || action == MenuAction::OpenSpeechSettings
-                                    || action == MenuAction::OpenKeyboardSettings
-                                    || action == MenuAction::OpenPluginManager
-                                {
-                                    let _ = slint::invoke_from_event_loop(move || {
-                                        if let Some(s) = s_weak.upgrade() {
-                                            show_settings(&s);
-                                        }
-                                    });
-                                } else {
-                                    let _ = evt_tx_action.try_send(UiEvent::Action(action));
-                                }
-                            }
-                        }
-                    }
                     UiCommand::OpenSettings => {
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(s) = s_weak.upgrade() {
-                                show_settings(&s);
+                                if let Err(e) = s.show() {
+                                    log::error!("Failed to show SettingsWindow: {:?}", e);
+                                }
                             }
                         });
                     }
-                    UiCommand::CloseMenu => {
-                        // Native Windows popup menus auto-close when dismissed or item selected
-                    }
-                    UiCommand::CloseAll => {
+                    UiCommand::CloseSettings | UiCommand::CloseAll => {
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(s) = s_weak.upgrade() {
                                 let _ = s.hide();
@@ -177,7 +156,6 @@ fn setup_settings_callbacks(settings: &SettingsWindow, evt_tx: Sender<UiEvent>) 
             };
             let _ = evt_tx_save.try_send(UiEvent::SettingsSaved(ui_settings));
             let _ = s.hide();
-            restore_previous_focus();
         }
     });
 
@@ -185,49 +163,6 @@ fn setup_settings_callbacks(settings: &SettingsWindow, evt_tx: Sender<UiEvent>) 
     settings.on_cancel_requested(move || {
         if let Some(s) = settings_weak_cancel.upgrade() {
             let _ = s.hide();
-            restore_previous_focus();
         }
     });
-}
-
-// Global storage of previously focused HWND to restore focus cleanly upon closing
-#[cfg(windows)]
-static PREVIOUS_FOREGROUND_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
-
-fn show_settings(settings: &SettingsWindow) {
-    #[cfg(windows)]
-    unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
-        let current_hwnd = GetForegroundWindow();
-        PREVIOUS_FOREGROUND_HWND.store(current_hwnd.0 as isize, Ordering::SeqCst);
-    }
-
-    if let Err(e) = settings.show() {
-        log::error!("Failed to show SettingsWindow: {:?}", e);
-    }
-
-    #[cfg(windows)]
-    unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
-        use windows::core::w;
-        if let Ok(hwnd) = FindWindowW(None, w!("bit_sr Settings")) {
-            if !hwnd.0.is_null() {
-                let _ = SetForegroundWindow(hwnd);
-            }
-        }
-    }
-}
-
-fn restore_previous_focus() {
-    #[cfg(windows)]
-    unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
-        use windows::Win32::Foundation::HWND;
-
-        let prev = PREVIOUS_FOREGROUND_HWND.swap(0, Ordering::SeqCst);
-        if prev != 0 {
-            let hwnd = HWND(prev as *mut _);
-            let _ = SetForegroundWindow(hwnd);
-        }
-    }
 }
