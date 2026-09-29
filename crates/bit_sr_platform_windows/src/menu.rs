@@ -4,13 +4,35 @@
 //! Follows NVDA's clean-room architecture (`wx.Menu.PopupMenu` equivalent) so that:
 //! - No separate application window is launched.
 //! - Operating system handles menu loop and accessibility natively.
-//! - Accessible via arrows, Enter, Esc, and keyboard accelerators.
+//! - Fully grabs keyboard focus via `AttachThreadInput` and `SetForegroundWindow`.
+//! - Automatically focuses the first menu item so screen readers announce it instantly.
 
 use bit_sr_core::events::AccessibilityEvent;
 use bit_sr_core::menu::MenuAction;
 use crossbeam_channel::Sender;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
 use std::thread;
+
+use windows::core::{w, PCWSTR};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Graphics::Gdi::UpdateWindow;
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    keybd_event, SetActiveWindow, SetFocus, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VK_DOWN, VK_MENU,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    AppendMenuW, BringWindowToTop, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
+    DestroyMenu, DestroyWindow, GetForegroundWindow, GetSystemMetrics,
+    GetWindowThreadProcessId, KillTimer, PostMessageW, RegisterClassExW,
+    SetForegroundWindow, SetTimer, ShowWindow, TrackPopupMenuEx,
+    CS_HREDRAW, CS_VREDRAW,
+    MF_POPUP, MF_SEPARATOR, MF_STRING, SM_CYSCREEN, SW_SHOW,
+    TPM_LEFTALIGN, TPM_RETURNCMD, TPM_TOPALIGN,
+    WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+    WM_NULL,
+};
 
 pub const ID_PREF_SETTINGS: u32 = 101;
 pub const ID_PREF_SPEECH: u32 = 102;
@@ -30,6 +52,85 @@ pub const ID_RESTART: u32 = 501;
 pub const ID_EXIT: u32 = 502;
 
 static IS_MENU_ACTIVE: AtomicBool = AtomicBool::new(false);
+static REGISTER_CLASS_ONCE: Once = Once::new();
+const CLASS_NAME: PCWSTR = w!("bit_sr_menu_host");
+
+unsafe extern "system" fn menu_host_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+fn ensure_window_class_registered() {
+    REGISTER_CLASS_ONCE.call_once(|| unsafe {
+        let h_instance = GetModuleHandleW(None).unwrap_or_default();
+        let wnd_class = WNDCLASSEXW {
+            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+            style: CS_HREDRAW | CS_VREDRAW,
+            lpfnWndProc: Some(menu_host_wnd_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: h_instance.into(),
+            hIcon: Default::default(),
+            hCursor: Default::default(),
+            hbrBackground: Default::default(),
+            lpszMenuName: PCWSTR::null(),
+            lpszClassName: CLASS_NAME,
+            hIconSm: Default::default(),
+        };
+        let _ = RegisterClassExW(&wnd_class);
+    });
+}
+
+/// Timer callback that fires once immediately after `TrackPopupMenuEx` starts its modal loop.
+/// Synthesizes a `VK_DOWN` keystroke to highlight and focus the first menu item ("Preferences"),
+/// causing Windows accessibility to fire `EVENT_OBJECT_FOCUS` so screen readers speak it instantly.
+unsafe extern "system" fn auto_select_first_item_timer(
+    hwnd: HWND,
+    _msg: u32,
+    id_event: usize,
+    _time: u32,
+) {
+    if id_event == 42 {
+        unsafe {
+            let _ = KillTimer(Some(hwnd), 42);
+            keybd_event(VK_DOWN.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
+            keybd_event(VK_DOWN.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+        }
+    }
+}
+
+fn force_foreground_and_focus(hwnd: HWND) -> HWND {
+    unsafe {
+        let fg_hwnd = GetForegroundWindow();
+        let fg_thread = GetWindowThreadProcessId(fg_hwnd, None);
+        let cur_thread = GetCurrentThreadId();
+
+        // 1. Break Windows foreground lock timeout by simulating a harmless Alt key press/release
+        keybd_event(VK_MENU.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
+        keybd_event(VK_MENU.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+
+        // 2. Attach thread input to the current foreground thread if different
+        if fg_thread != 0 && fg_thread != cur_thread {
+            let _ = AttachThreadInput(cur_thread, fg_thread, true);
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetActiveWindow(hwnd);
+            let _ = SetFocus(Some(hwnd));
+            let _ = AttachThreadInput(cur_thread, fg_thread, false);
+        } else {
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetActiveWindow(hwnd);
+            let _ = SetFocus(Some(hwnd));
+        }
+
+        fg_hwnd
+    }
+}
 
 /// Opens the native Windows screen reader popup menu asynchronously.
 ///
@@ -56,15 +157,9 @@ pub fn open_menu_async(event_tx: Sender<AccessibilityEvent>) {
 /// Displays an authentic native Windows popup menu (identical to NVDA's wx.Menu.PopupMenu)
 /// docked to the left side of the screen.
 pub fn show_native_popup_menu(x: i32, y: i32) -> Option<MenuAction> {
-    unsafe {
-        use windows::core::w;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            AppendMenuW, CreatePopupMenu, CreateWindowExW, DestroyMenu, DestroyWindow,
-            GetSystemMetrics, SetForegroundWindow, TrackPopupMenuEx,
-            MF_POPUP, MF_SEPARATOR, MF_STRING, SM_CYSCREEN,
-            TPM_LEFTALIGN, TPM_RETURNCMD, TPM_TOPALIGN, WINDOW_EX_STYLE, WS_POPUP,
-        };
+    ensure_window_class_registered();
 
+    unsafe {
         // 1. Preferences Submenu
         let hmenu_pref = match CreatePopupMenu() {
             Ok(h) => h,
@@ -131,19 +226,28 @@ pub fn show_native_popup_menu(x: i32, y: i32) -> Option<MenuAction> {
         let _ = AppendMenuW(hmenu_root, MF_STRING, ID_RESTART as usize, w!("&Restart bit_sr"));
         let _ = AppendMenuW(hmenu_root, MF_STRING, ID_EXIT as usize, w!("E&xit bit_sr\tSR+Q"));
 
-        // 6. Invisible Anchor Window (required by Win32 TrackPopupMenuEx)
+        // Position on the left side of the screen
+        let chosen_y = if y < 0 {
+            let screen_h = GetSystemMetrics(SM_CYSCREEN);
+            (screen_h - 220) / 2
+        } else {
+            y
+        };
+
+        // 6. Create dedicated Anchor Window (WS_POPUP | WS_VISIBLE with WS_EX_TOOLWINDOW | WS_EX_TOPMOST)
+        let h_instance = GetModuleHandleW(None).unwrap_or_default();
         let hwnd = match CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            w!("STATIC"),
-            w!("bit_sr_menu_anchor"),
-            WS_POPUP,
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            CLASS_NAME,
+            w!("bit_sr_menu"),
+            WS_POPUP | WS_VISIBLE,
             x,
-            0,
-            0,
-            0,
+            chosen_y,
+            1,
+            1,
             None,
             None,
-            None,
+            Some(h_instance.into()),
             None,
         ) {
             Ok(h) => h,
@@ -153,17 +257,16 @@ pub fn show_native_popup_menu(x: i32, y: i32) -> Option<MenuAction> {
             }
         };
 
-        let _ = SetForegroundWindow(hwnd);
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = UpdateWindow(hwnd);
 
-        // Position on the left side of the screen
-        let chosen_y = if y < 0 {
-            let screen_h = GetSystemMetrics(SM_CYSCREEN);
-            (screen_h - 220) / 2
-        } else {
-            y
-        };
+        // 7. Force Foreground & Keyboard Focus
+        let prev_fg = force_foreground_and_focus(hwnd);
 
-        // 7. Track popup menu with native OS modal menu loop
+        // 8. Arm single-shot timer to auto-focus the first item once modal loop begins
+        let _ = SetTimer(Some(hwnd), 42, 15, Some(auto_select_first_item_timer));
+
+        // 9. Track popup menu with native OS modal menu loop
         let selected_cmd = TrackPopupMenuEx(
             hmenu_root,
             (TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD).0,
@@ -173,8 +276,18 @@ pub fn show_native_popup_menu(x: i32, y: i32) -> Option<MenuAction> {
             None,
         );
 
+        // 10. Cleanup
+        let _ = KillTimer(Some(hwnd), 42);
         let _ = DestroyMenu(hmenu_root);
         let _ = DestroyWindow(hwnd);
+
+        // Standard Win32 context menu cleanup (KB Q135788)
+        let _ = PostMessageW(None, WM_NULL, WPARAM(0), LPARAM(0));
+
+        // Restore focus to previous application window
+        if prev_fg != HWND::default() && prev_fg != hwnd {
+            let _ = SetForegroundWindow(prev_fg);
+        }
 
         map_menu_cmd_to_action(selected_cmd.0 as u32)
     }
