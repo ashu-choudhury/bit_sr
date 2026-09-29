@@ -78,14 +78,13 @@ Unlike incumbent screen readers that rely on Python runtimes with Global Interpr
   - Linux: Speech Dispatcher (`speechd`).
   - Cross-platform / Neural: Offline neural synthesizers like **Piper TTS** (ONNX-based) and **eSpeak NG**.
 
-### Pillar 4: Sandboxed Wasm Extension Runtime (`bit_sr_plugin`)
-- Extension execution is powered by **Wasmtime** or **Wasmi** utilizing the WebAssembly Component Model.
-- **Capability-Based Permissions:** Every add-on must provide a manifest specifying its required capabilities:
-  - `speech:filter`: Read and transform outgoing speech text.
-  - `hotkey:register`: Register new shortcuts.
-  - `accessibility:inspect`: Read properties of the focused element.
-  - `network:fetch`: Explicitly scoped HTTP requests (e.g., for AI image description).
-  - ❌ **No arbitrary filesystem execution or shell process spawning.**
+### Pillar 4: Unified Wasm Extension Runtime (`bit_sr_plugin`)
+- Powered by **Wasmtime** (Bytecode Alliance, 100% pure Rust, Cranelift JIT compiler).
+- **Comprehensive Specification:** See [`VISION_WASM_EXTENSION.md`](VISION_WASM_EXTENSION.md) for full details.
+- **Two-Tier Capability Architecture:**
+  - **Tier 1 (Standard Sandboxed 🛡️):** Scoped storage (`/data`), strict memory quotas (`max_memory_mb`), speech filters, hotkeys, and domain-scoped networking.
+  - **Tier 2 (System Access 🔑):** Full unrestricted OS access via the host bridge (arbitrary DLL loading, system commands, raw hardware I/O) upon explicit user trust and consent.
+- **Multi-Language Support:** Official SDK for Rust, plus first-class support for C/C++, Zig, Go, TypeScript, and Python.
 
 ### Pillar 5: Accessible Native GUI & Extension Storefront (`bit_sr_ui`)
 - Powered by **Slint** (with native AccessKit integration).

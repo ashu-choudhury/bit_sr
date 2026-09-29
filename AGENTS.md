@@ -21,7 +21,8 @@ git submodule update --init --recursive
 Before implementing or modifying platform-specific features, consult the self-contained technical specifications at the project root:
 * **[`WINDOWS.md`](WINDOWS.md):** Complete Windows OS accessibility architecture & syscall blueprint (Win32 low-level hooks, UIA COM interfaces, event coalescing, cache requests, common controls, and File Explorer quirks).
 * **[`LINUX.md`](LINUX.md):** Complete Linux AT-SPI2 D-Bus & evdev architecture blueprint (D-Bus interfaces, cache subtree batching, Wayland input capture, and GNOME Shell/Nautilus navigation).
-* **[`VISION.md`](VISION.md):** High-level roadmap, core philosophies, threat modeling, and WebAssembly plugin engine design.
+* **[`VISION.md`](VISION.md):** High-level roadmap, core philosophies, threat modeling, and overall project pillars.
+* **[`VISION_WASM_EXTENSION.md`](VISION_WASM_EXTENSION.md):** Complete WebAssembly extension ecosystem specification (Wasmtime runtime, scoped storage, two-tier permission model, host gatekeeper, and multi-language support).
 
 ---
 
