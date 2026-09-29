@@ -1,0 +1,21 @@
+[package]
+name = "bit_sr_plugin"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "WebAssembly extension ecosystem, sandbox, host bridge, and .bsp package manager for bit_sr"
+
+[dependencies]
+bit_sr_core = { path = "../bit_sr_core" }
+wasmtime = "49"
+wasmtime-wasi = "49"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+libloading = "0.8"
+thiserror = "2.0"
+log = "0.4"
+
+[dev-dependencies]
+tempfile = "3.17"
+wat = "1.259"
