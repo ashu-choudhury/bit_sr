@@ -27,6 +27,8 @@ pub struct UiaClient {
     client: IUIAutomation,
     cache_request: IUIAutomationCacheRequest,
     explorer_filter: Arc<ExplorerFilter>,
+    _raw_tx: Sender<events::RawUiaEvent>,
+    _worker_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl UiaClient {
@@ -64,15 +66,19 @@ impl UiaClient {
             // Section 3.4: Build 18-property base CacheRequest
             let cache_request = create_base_cache_request(&client)?;
 
+            // Spawn dedicated UIA event worker thread to process COM properties off the callback thread
+            let (raw_tx, raw_rx) = crossbeam_channel::bounded::<events::RawUiaEvent>(256);
+            let worker_thread = events::spawn_uia_worker(raw_rx, tx, explorer_filter.clone());
+
             // Register FocusChangedEventHandler
             let focus_handler: IUIAutomationFocusChangedEventHandler =
-                FocusChangedHandler::new(tx.clone(), explorer_filter.clone()).into();
+                FocusChangedHandler::new(raw_tx.clone()).into();
             client.AddFocusChangedEventHandler(&cache_request, &focus_handler)?;
 
             // Register PropertyChangedEventHandler for Subtree using native array
             let root = client.GetRootElementBuildCache(&cache_request)?;
             let prop_handler: IUIAutomationPropertyChangedEventHandler =
-                PropertyChangedHandler::new(tx.clone()).into();
+                PropertyChangedHandler::new(raw_tx.clone()).into();
             let properties = [UIA_NamePropertyId, UIA_ValueValuePropertyId, UIA_RangeValueValuePropertyId];
             if let Err(e) = client.AddPropertyChangedEventHandlerNativeArray(
                 &root,
@@ -87,7 +93,7 @@ impl UiaClient {
             // Register NotificationEventHandler if supported (Windows 10 1709+)
             if let Ok(client5) = client.cast::<IUIAutomation5>() {
                 let notification_handler: IUIAutomationNotificationEventHandler =
-                    NotificationEventHandler::new(tx).into();
+                    NotificationEventHandler::new(raw_tx.clone()).into();
                 let _ = client5.AddNotificationEventHandler(
                     &root,
                     TreeScope_Subtree,
@@ -100,6 +106,8 @@ impl UiaClient {
                 client,
                 cache_request,
                 explorer_filter,
+                _raw_tx: raw_tx,
+                _worker_thread: Some(worker_thread),
             })
         }
     }

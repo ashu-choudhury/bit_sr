@@ -9,9 +9,9 @@ use bit_sr_core::events::AccessibilityEvent;
 use bit_sr_core::input::{
     Key, KeyAction, KeyEvent, KeyModifiers, SRKeyAction, SRKeyConfig, SRModifierTracker,
 };
-use crossbeam_channel::Sender;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use crossbeam_channel::{Receiver, Sender};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -32,10 +32,43 @@ use windows::Win32::UI::WindowsAndMessaging::{
     KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_QUIT,
 };
 
-static HOOK_CHANNEL: Mutex<Option<Sender<AccessibilityEvent>>> = Mutex::new(None);
 static IS_RUNNING: AtomicBool = AtomicBool::new(false);
-static SR_TRACKER: Mutex<Option<SRModifierTracker>> = Mutex::new(None);
 static INPUT_HELP_ACTIVE: AtomicBool = AtomicBool::new(false);
+static CURRENT_MODIFIERS: AtomicU32 = AtomicU32::new(0);
+
+static CONFIG_USE_CAPSLOCK: AtomicBool = AtomicBool::new(true);
+static CONFIG_USE_INSERT: AtomicBool = AtomicBool::new(false);
+static CONFIG_USE_NUMPAD_INSERT: AtomicBool = AtomicBool::new(false);
+static CONFIG_DOUBLE_TAP_MS: AtomicU64 = AtomicU64::new(350);
+
+#[derive(Debug, Clone, Copy)]
+struct RawKeyboardEvent {
+    key: Key,
+    vk_code: u32,
+    scan_code: u32,
+    is_extended: bool,
+    is_injected: bool,
+    action: KeyAction,
+    modifiers: KeyModifiers,
+}
+
+struct HookThreadState {
+    tx: Sender<AccessibilityEvent>,
+    raw_tx: Sender<RawKeyboardEvent>,
+    sr_tracker: SRModifierTracker,
+    shift_left: bool,
+    shift_right: bool,
+    ctrl_left: bool,
+    ctrl_right: bool,
+    alt_left: bool,
+    alt_right: bool,
+    super_left: bool,
+    super_right: bool,
+}
+
+thread_local! {
+    static HOOK_STATE: RefCell<Option<HookThreadState>> = const { RefCell::new(None) };
+}
 
 /// Activates or deactivates input help mode in the low-level hook.
 pub fn set_input_help_active(active: bool) {
@@ -167,59 +200,30 @@ pub unsafe fn toggle_hardware_caps_lock() {
     }
 }
 
-/// Queries physical modifier keys from Windows hardware state.
+/// Queries currently active modifier keys without making Win32 API calls.
+/// Reads atomic bitflags updated directly by the low-level keyboard hook.
 pub fn get_current_modifiers() -> KeyModifiers {
-    let mut mods = KeyModifiers::empty();
-    unsafe {
-        if (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_LSHIFT.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_RSHIFT.0 as i32) as u16 & 0x8000) != 0
-        {
-            mods |= KeyModifiers::SHIFT;
-        }
-        if (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_LCONTROL.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_RCONTROL.0 as i32) as u16 & 0x8000) != 0
-        {
-            mods |= KeyModifiers::CONTROL;
-        }
-        if (GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_LMENU.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_RMENU.0 as i32) as u16 & 0x8000) != 0
-        {
-            mods |= KeyModifiers::ALT;
-        }
-        if (GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0
-        {
-            mods |= KeyModifiers::SUPER;
-        }
-    }
-
-    // Check if the SR modifier is active in the tracker
-    if let Ok(guard) = SR_TRACKER.lock() {
-        if let Some(ref tracker) = *guard {
-            if tracker.is_sr_held() {
-                mods |= KeyModifiers::SR;
-            }
-        }
-    }
-
-    mods
+    KeyModifiers::from_bits_truncate(CURRENT_MODIFIERS.load(Ordering::Relaxed))
 }
 
 /// Configures the SR modifier keys and double-tap parameters.
 pub fn configure_sr_keys(config: SRKeyConfig) {
-    if let Ok(mut guard) = SR_TRACKER.lock() {
-        *guard = Some(SRModifierTracker::new(config));
-    }
+    CONFIG_USE_CAPSLOCK.store(config.use_caps_lock, Ordering::Release);
+    CONFIG_USE_INSERT.store(config.use_insert, Ordering::Release);
+    CONFIG_USE_NUMPAD_INSERT.store(config.use_numpad_insert, Ordering::Release);
+    CONFIG_DOUBLE_TAP_MS.store(config.double_tap_timeout_ms, Ordering::Release);
 }
 
 /// Queries the typed unicode character for a physical key down using ToUnicodeEx.
-/// Uses GetKeyState across all 256 keys (NVDA pattern) so hook thread gets accurate state,
-/// with the TM_DONT_MODIFY_KEY_STATE flag (0x04) to avoid destroying dead key / keyboard state.
-/// Falls back to direct key mapping for letters and numbers so typing echo never drops characters.
-unsafe fn get_typed_character(vk_code: u32, scan_code: u32, key: Key) -> Option<String> {
+/// Runs on the dedicated keyboard worker thread outside the Windows hook callback.
+/// Constructs the 256-byte key state directly from tracked modifier bits rather than
+/// querying the OS 256 times per keystroke.
+unsafe fn decode_character(
+    vk_code: u32,
+    scan_code: u32,
+    modifiers: KeyModifiers,
+    key: Key,
+) -> Option<String> {
     unsafe {
         let hwnd = GetForegroundWindow();
         let thread_id = if !hwnd.0.is_null() {
@@ -229,21 +233,25 @@ unsafe fn get_typed_character(vk_code: u32, scan_code: u32, key: Key) -> Option<
         };
         let hkl = GetKeyboardLayout(thread_id);
 
-        let is_shift = (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_LSHIFT.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_RSHIFT.0 as i32) as u16 & 0x8000) != 0;
         let is_caps = (GetKeyState(VK_CAPITAL.0 as i32) as u16 & 0x0001) != 0;
-        let is_upper = is_shift ^ is_caps;
+        let is_num = (GetKeyState(VK_NUMLOCK.0 as i32) as u16 & 0x0001) != 0;
 
+        // Build key state directly with only the 5 required flags that ToUnicodeEx inspects
         let mut key_state = [0u8; 256];
-        for k in 0..256 {
-            key_state[k] = GetKeyState(k as i32) as u8;
-        }
-        if is_shift {
+        if modifiers.contains(KeyModifiers::SHIFT) {
             key_state[VK_SHIFT.0 as usize] = 0x80;
         }
+        if modifiers.contains(KeyModifiers::CONTROL) {
+            key_state[VK_CONTROL.0 as usize] = 0x80;
+        }
+        if modifiers.contains(KeyModifiers::ALT) {
+            key_state[VK_MENU.0 as usize] = 0x80;
+        }
         if is_caps {
-            key_state[VK_CAPITAL.0 as usize] |= 0x01;
+            key_state[VK_CAPITAL.0 as usize] = 0x01;
+        }
+        if is_num {
+            key_state[VK_NUMLOCK.0 as usize] = 0x01;
         }
 
         let mut char_buf = [0u16; 8];
@@ -265,8 +273,9 @@ unsafe fn get_typed_character(vk_code: u32, scan_code: u32, key: Key) -> Option<
             }
         }
 
-        // Direct fallback: derive typed character from Key + Shift/CapsLock state
-
+        // Direct fallback: only for letters and digits if ToUnicodeEx returned nothing.
+        // We do not hardcode symbols to avoid speaking wrong characters on international layouts (e.g. AZERTY / QWERTZ).
+        let is_upper = modifiers.contains(KeyModifiers::SHIFT) ^ is_caps;
         match key {
             Key::A => Some(if is_upper { "A" } else { "a" }.to_string()),
             Key::B => Some(if is_upper { "B" } else { "b" }.to_string()),
@@ -295,48 +304,65 @@ unsafe fn get_typed_character(vk_code: u32, scan_code: u32, key: Key) -> Option<
             Key::Y => Some(if is_upper { "Y" } else { "y" }.to_string()),
             Key::Z => Some(if is_upper { "Z" } else { "z" }.to_string()),
 
-            Key::Num0 => Some(if is_shift { ")" } else { "0" }.to_string()),
-            Key::Num1 => Some(if is_shift { "!" } else { "1" }.to_string()),
-            Key::Num2 => Some(if is_shift { "@" } else { "2" }.to_string()),
-            Key::Num3 => Some(if is_shift { "#" } else { "3" }.to_string()),
-            Key::Num4 => Some(if is_shift { "$" } else { "4" }.to_string()),
-            Key::Num5 => Some(if is_shift { "%" } else { "5" }.to_string()),
-            Key::Num6 => Some(if is_shift { "^" } else { "6" }.to_string()),
-            Key::Num7 => Some(if is_shift { "&" } else { "7" }.to_string()),
-            Key::Num8 => Some(if is_shift { "*" } else { "8" }.to_string()),
-            Key::Num9 => Some(if is_shift { "(" } else { "9" }.to_string()),
-
-            Key::Numpad0 => Some("0".to_string()),
-            Key::Numpad1 => Some("1".to_string()),
-            Key::Numpad2 => Some("2".to_string()),
-            Key::Numpad3 => Some("3".to_string()),
-            Key::Numpad4 => Some("4".to_string()),
-            Key::Numpad5 => Some("5".to_string()),
-            Key::Numpad6 => Some("6".to_string()),
-            Key::Numpad7 => Some("7".to_string()),
-            Key::Numpad8 => Some("8".to_string()),
-            Key::Numpad9 => Some("9".to_string()),
+            Key::Num0 => Some("0".to_string()),
+            Key::Num1 => Some("1".to_string()),
+            Key::Num2 => Some("2".to_string()),
+            Key::Num3 => Some("3".to_string()),
+            Key::Num4 => Some("4".to_string()),
+            Key::Num5 => Some("5".to_string()),
+            Key::Num6 => Some("6".to_string()),
+            Key::Num7 => Some("7".to_string()),
+            Key::Num8 => Some("8".to_string()),
+            Key::Num9 => Some("9".to_string()),
 
             Key::Space => Some(" ".to_string()),
-            Key::Semicolon => Some(if is_shift { ":" } else { ";" }.to_string()),
-            Key::Equals => Some(if is_shift { "+" } else { "=" }.to_string()),
-            Key::Comma => Some(if is_shift { "<" } else { "," }.to_string()),
-            Key::Minus => Some(if is_shift { "_" } else { "-" }.to_string()),
-            Key::Period => Some(if is_shift { ">" } else { "." }.to_string()),
-            Key::Slash => Some(if is_shift { "?" } else { "/" }.to_string()),
-            Key::Grave => Some(if is_shift { "~" } else { "`" }.to_string()),
-            Key::LeftBracket => Some(if is_shift { "{" } else { "[" }.to_string()),
-            Key::Backslash => Some(if is_shift { "|" } else { "\\" }.to_string()),
-            Key::RightBracket => Some(if is_shift { "}" } else { "]" }.to_string()),
-            Key::Apostrophe => Some(if is_shift { "\"" } else { "'" }.to_string()),
 
             _ => None,
         }
     }
 }
 
+/// Spawns the dedicated keyboard worker thread that handles character decoding off the hook callback.
+fn spawn_keyboard_worker(
+    raw_rx: Receiver<RawKeyboardEvent>,
+    tx: Sender<AccessibilityEvent>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::Builder::new()
+        .name("bit_sr_keyboard_worker".to_string())
+        .spawn(move || {
+            while let Ok(raw) = raw_rx.recv() {
+                // Character decoding only needed for key down on non-modifiers without command modifiers
+                let text = if raw.action == KeyAction::Down
+                    && !raw.key.is_modifier()
+                    && !raw.modifiers.intersects(
+                        KeyModifiers::SR | KeyModifiers::ALT | KeyModifiers::CONTROL | KeyModifiers::SUPER,
+                    )
+                {
+                    unsafe { decode_character(raw.vk_code, raw.scan_code, raw.modifiers, raw.key) }
+                } else {
+                    None
+                };
+
+                let key_event = KeyEvent {
+                    key: raw.key,
+                    vk_code: raw.vk_code,
+                    scan_code: raw.scan_code,
+                    is_extended: raw.is_extended,
+                    is_injected: raw.is_injected,
+                    action: raw.action,
+                    modifiers: raw.modifiers,
+                    text,
+                };
+
+                let _ = tx.try_send(AccessibilityEvent::Input(key_event));
+            }
+        })
+        .expect("Failed to spawn keyboard worker thread")
+}
+
 /// The low-level keyboard hook callback procedure.
-/// Critical invariant: NEVER execute COM calls or blocking work here.
+/// Critical invariant: NEVER execute COM calls, blocking locks, or heavy decoding here.
+/// Minimal execution path: inspect event, update local state, try_send to queue, and return immediately.
 unsafe extern "system" fn low_level_keyboard_proc(
     n_code: i32,
     w_param: WPARAM,
@@ -349,87 +375,112 @@ unsafe extern "system" fn low_level_keyboard_proc(
         let is_injected = (kbd.flags.0 & LLKHF_INJECTED) != 0;
         let action = if is_up { KeyAction::Up } else { KeyAction::Down };
 
-        // Injected events bypass our SR interception (e.g. when we toggle CapsLock synthetically)
+        // Injected events bypass our SR interception (e.g. synthetic CapsLock toggle)
         if is_injected {
             return unsafe { CallNextHookEx(None, n_code, w_param, l_param) };
         }
 
         let key = vk_to_key(kbd.vkCode, is_extended);
-        let mut sr_action = SRKeyAction::None;
 
-        if let Ok(mut guard) = SR_TRACKER.lock() {
-            let tracker = guard.get_or_insert_with(|| SRModifierTracker::new(SRKeyConfig::default()));
-            let now = Instant::now();
-            sr_action = match action {
-                KeyAction::Down => tracker.on_key_down(key, now),
-                KeyAction::Up => tracker.on_key_up(key, now),
+        let intercept = HOOK_STATE.with(|cell| {
+            let mut guard = match cell.try_borrow_mut() {
+                Ok(g) => g,
+                Err(_) => return false,
             };
-        }
+            let state = match guard.as_mut() {
+                Some(s) => s,
+                None => return false,
+            };
 
-        // Handle CapsLock double-tap toggle
-        if sr_action == SRKeyAction::ToggleCapsLock {
-            unsafe {
-                toggle_hardware_caps_lock();
+            // Synchronize SR tracker config if changed
+            state.sr_tracker.config.use_caps_lock = CONFIG_USE_CAPSLOCK.load(Ordering::Relaxed);
+            state.sr_tracker.config.use_insert = CONFIG_USE_INSERT.load(Ordering::Relaxed);
+            state.sr_tracker.config.use_numpad_insert = CONFIG_USE_NUMPAD_INSERT.load(Ordering::Relaxed);
+            state.sr_tracker.config.double_tap_timeout_ms = CONFIG_DOUBLE_TAP_MS.load(Ordering::Relaxed);
+
+            // Update physical modifier tracking
+            let is_down = action == KeyAction::Down;
+            match key {
+                Key::LeftShift => state.shift_left = is_down,
+                Key::RightShift => state.shift_right = is_down,
+                Key::LeftControl => state.ctrl_left = is_down,
+                Key::RightControl => state.ctrl_right = is_down,
+                Key::LeftAlt => state.alt_left = is_down,
+                Key::RightAlt => state.alt_right = is_down,
+                Key::LeftSuper => state.super_left = is_down,
+                Key::RightSuper => state.super_right = is_down,
+                _ => {}
             }
-            let is_on = unsafe { (GetKeyState(VK_CAPITAL.0 as i32) as u16 & 0x0001) != 0 };
-            if let Ok(guard) = HOOK_CHANNEL.lock() {
-                if let Some(ref tx) = *guard {
-                    let _ = tx.try_send(AccessibilityEvent::CapsLockToggled(is_on));
+
+            let now = Instant::now();
+            let sr_action = match action {
+                KeyAction::Down => state.sr_tracker.on_key_down(key, now),
+                KeyAction::Up => state.sr_tracker.on_key_up(key, now),
+            };
+
+            // Handle CapsLock double-tap toggle
+            if sr_action == SRKeyAction::ToggleCapsLock {
+                unsafe {
+                    toggle_hardware_caps_lock();
                 }
+                let is_on = unsafe { (GetKeyState(VK_CAPITAL.0 as i32) as u16 & 0x0001) != 0 };
+                let _ = state.tx.try_send(AccessibilityEvent::CapsLockToggled(is_on));
+                return true;
             }
-            return LRESULT(1);
-        }
 
-        let mut modifiers = get_current_modifiers();
-        if sr_action == SRKeyAction::InterceptModifier && key != Key::CapsLock {
-            modifiers |= KeyModifiers::SR;
-        }
-
-        // Query typed character only on key down when non-modifier and without command modifiers
-        let text = if action == KeyAction::Down
-            && !key.is_modifier()
-            && !modifiers.contains(KeyModifiers::SR)
-            && !modifiers.contains(KeyModifiers::ALT)
-            && !modifiers.contains(KeyModifiers::CONTROL)
-            && !modifiers.contains(KeyModifiers::SUPER)
-        {
-            unsafe { get_typed_character(kbd.vkCode, kbd.scanCode, key) }
-        } else {
-            None
-        };
-
-        let key_event = KeyEvent {
-            key,
-            vk_code: kbd.vkCode,
-            scan_code: kbd.scanCode,
-            is_extended,
-            is_injected,
-            action,
-            modifiers,
-            text,
-        };
-
-        if let Ok(guard) = HOOK_CHANNEL.lock() {
-            if let Some(ref tx) = *guard {
-                // Instantly signal speech interrupt on physical Control or Escape press
-                if action == KeyAction::Down
-                    && (key == Key::LeftControl
-                        || key == Key::RightControl
-                        || key == Key::Escape)
-                {
-                    let _ = tx.try_send(AccessibilityEvent::SpeechInterrupt);
-                }
-                let _ = tx.try_send(AccessibilityEvent::Input(key_event));
+            // Build active modifiers bitflag
+            let mut modifiers = KeyModifiers::empty();
+            if state.shift_left || state.shift_right {
+                modifiers |= KeyModifiers::SHIFT;
             }
-        }
+            if state.ctrl_left || state.ctrl_right {
+                modifiers |= KeyModifiers::CONTROL;
+            }
+            if state.alt_left || state.alt_right {
+                modifiers |= KeyModifiers::ALT;
+            }
+            if state.super_left || state.super_right {
+                modifiers |= KeyModifiers::SUPER;
+            }
+            if state.sr_tracker.is_sr_held() || (sr_action == SRKeyAction::InterceptModifier && key != Key::CapsLock) {
+                modifiers |= KeyModifiers::SR;
+            }
 
-        // Intercept SR modifier from reaching the underlying window
-        if sr_action == SRKeyAction::InterceptModifier {
-            return LRESULT(1);
-        }
+            CURRENT_MODIFIERS.store(modifiers.bits(), Ordering::Relaxed);
 
-        // If input help mode is active, intercept all non-injected keys so they don't affect windows
-        if INPUT_HELP_ACTIVE.load(Ordering::Relaxed) {
+            // Instantly signal speech interrupt on physical Control or Escape press
+            if action == KeyAction::Down
+                && (key == Key::LeftControl || key == Key::RightControl || key == Key::Escape)
+            {
+                let _ = state.tx.try_send(AccessibilityEvent::SpeechInterrupt);
+            }
+
+            // Dispatch raw event to worker thread queue for non-blocking Unicode translation
+            let raw_event = RawKeyboardEvent {
+                key,
+                vk_code: kbd.vkCode,
+                scan_code: kbd.scanCode,
+                is_extended,
+                is_injected,
+                action,
+                modifiers,
+            };
+            let _ = state.raw_tx.try_send(raw_event);
+
+            // Intercept SR modifier from reaching the underlying window
+            if sr_action == SRKeyAction::InterceptModifier {
+                return true;
+            }
+
+            // Intercept all keys in input help mode
+            if INPUT_HELP_ACTIVE.load(Ordering::Relaxed) {
+                return true;
+            }
+
+            false
+        });
+
+        if intercept {
             return LRESULT(1);
         }
     }
@@ -439,28 +490,64 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
 /// Controller handle for the low-level keyboard hook thread.
 pub struct KeyboardHookHandle {
-    thread_id: u32,
+    hook_thread_id: u32,
+    _worker_thread: std::thread::JoinHandle<()>,
 }
 
 impl KeyboardHookHandle {
-    /// Launches the low-level keyboard hook on a dedicated thread with a Win32 message pump.
+    /// Launches the low-level keyboard hook on a dedicated thread with a Win32 message pump,
+    /// and spawns a background worker thread for non-blocking Unicode character decoding.
     pub fn start(tx: Sender<AccessibilityEvent>) -> Result<Self, crate::error::Error> {
         let (thread_ready_tx, thread_ready_rx) = crossbeam_channel::bounded(1);
+        let (raw_tx, raw_rx) = crossbeam_channel::bounded::<RawKeyboardEvent>(256);
+
+        // Spawn dedicated worker thread for non-blocking character decoding
+        let worker_thread = spawn_keyboard_worker(raw_rx, tx.clone());
 
         std::thread::Builder::new()
             .name("bit_sr_keyboard_hook".to_string())
             .spawn(move || unsafe {
                 let thread_id = windows::Win32::System::Threading::GetCurrentThreadId();
-                if let Ok(mut guard) = HOOK_CHANNEL.lock() {
-                    *guard = Some(tx);
-                }
 
-                // Initialize SR tracker if not already initialized
-                if let Ok(mut guard) = SR_TRACKER.lock() {
-                    if guard.is_none() {
-                        *guard = Some(SRModifierTracker::new(SRKeyConfig::default()));
-                    }
-                }
+                // Initialize modifier keys on startup
+                let shift_left = (GetAsyncKeyState(VK_LSHIFT.0 as i32) as u16 & 0x8000) != 0;
+                let shift_right = (GetAsyncKeyState(VK_RSHIFT.0 as i32) as u16 & 0x8000) != 0;
+                let ctrl_left = (GetAsyncKeyState(VK_LCONTROL.0 as i32) as u16 & 0x8000) != 0;
+                let ctrl_right = (GetAsyncKeyState(VK_RCONTROL.0 as i32) as u16 & 0x8000) != 0;
+                let alt_left = (GetAsyncKeyState(VK_LMENU.0 as i32) as u16 & 0x8000) != 0;
+                let alt_right = (GetAsyncKeyState(VK_RMENU.0 as i32) as u16 & 0x8000) != 0;
+                let super_left = (GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0;
+                let super_right = (GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0;
+
+                let mut initial_mods = KeyModifiers::empty();
+                if shift_left || shift_right { initial_mods |= KeyModifiers::SHIFT; }
+                if ctrl_left || ctrl_right { initial_mods |= KeyModifiers::CONTROL; }
+                if alt_left || alt_right { initial_mods |= KeyModifiers::ALT; }
+                if super_left || super_right { initial_mods |= KeyModifiers::SUPER; }
+                CURRENT_MODIFIERS.store(initial_mods.bits(), Ordering::Relaxed);
+
+                let config = SRKeyConfig {
+                    use_caps_lock: CONFIG_USE_CAPSLOCK.load(Ordering::Relaxed),
+                    use_insert: CONFIG_USE_INSERT.load(Ordering::Relaxed),
+                    use_numpad_insert: CONFIG_USE_NUMPAD_INSERT.load(Ordering::Relaxed),
+                    double_tap_timeout_ms: CONFIG_DOUBLE_TAP_MS.load(Ordering::Relaxed),
+                };
+
+                HOOK_STATE.with(|cell| {
+                    *cell.borrow_mut() = Some(HookThreadState {
+                        tx,
+                        raw_tx,
+                        sr_tracker: SRModifierTracker::new(config),
+                        shift_left,
+                        shift_right,
+                        ctrl_left,
+                        ctrl_right,
+                        alt_left,
+                        alt_right,
+                        super_left,
+                        super_right,
+                    });
+                });
 
                 let hook = match SetWindowsHookExW(
                     WH_KEYBOARD_LL,
@@ -485,24 +572,29 @@ impl KeyboardHookHandle {
 
                 let _ = UnhookWindowsHookEx(hook);
                 IS_RUNNING.store(false, Ordering::SeqCst);
-                if let Ok(mut guard) = HOOK_CHANNEL.lock() {
-                    *guard = None;
-                }
+
+                // Dropping HOOK_STATE drops raw_tx, signaling worker thread to exit cleanly
+                HOOK_STATE.with(|cell| {
+                    *cell.borrow_mut() = None;
+                });
             })
             .map_err(|e| crate::error::Error::Internal(e.to_string()))?;
 
-        let thread_id = thread_ready_rx
+        let hook_thread_id = thread_ready_rx
             .recv()
             .map_err(|_| crate::error::Error::HookInstallationFailed("Channel disconnected"))??;
 
-        Ok(Self { thread_id })
+        Ok(Self {
+            hook_thread_id,
+            _worker_thread: worker_thread,
+        })
     }
 
     /// Stops the keyboard hook and unregisters it cleanly.
     pub fn stop(self) {
         if IS_RUNNING.load(Ordering::SeqCst) {
             unsafe {
-                let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+                let _ = PostThreadMessageW(self.hook_thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
             }
         }
     }
