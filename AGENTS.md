@@ -61,6 +61,7 @@ crates/
 ├── bit_sr_core/               # Pure data models, Android-inspired tree, actions, roles, states
 ├── bit_sr_platform_windows/   # Win32 WH_KEYBOARD_LL, UIA CUIAutomation8, MSAA, Explorer heuristics
 ├── bit_sr_speech/             # Pluggable SpeechHub, SAPI 5 ISpVoice, MockSynthesizer
+├── bit_sr_ui/                 # Slint accessible settings dashboard & extension marketplace
 └── bit_sr_engine/             # Coordinator event loop, SpeechFormatter, FocusTracker, bit_sr CLI binary
 ```
 

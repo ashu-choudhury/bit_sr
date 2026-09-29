@@ -87,6 +87,11 @@ Unlike incumbent screen readers that rely on Python runtimes with Global Interpr
   - `network:fetch`: Explicitly scoped HTTP requests (e.g., for AI image description).
   - ❌ **No arbitrary filesystem execution or shell process spawning.**
 
+### Pillar 5: Accessible Native GUI & Extension Storefront (`bit_sr_ui`)
+- Powered by **Slint** (with native AccessKit integration).
+- **Retained-mode accessibility:** Empirically verified to provide 100% accessible controls (combo boxes, sliders, checkboxes, text fields) to screen readers out of the box.
+- Compiles natively to a single binary with zero external DLLs, avoiding WebView/Electron memory overhead and multi-platform UI code fragmentation.
+
 ---
 
 ## 4. Reference Codebases
@@ -102,28 +107,37 @@ To accelerate engineering and accurately handle platform-specific edge cases, th
 
 ## 5. Phased Roadmap
 
+*(For the detailed, actionable 5-step implementation plan, see [`ROADMAP.md`](ROADMAP.md).)*
+
 ### Phase 1: Windows MVP & Core Loop
-- [ ] Initialize Cargo workspace (`bit_sr_core`, `bit_sr_platform_windows`, `bit_sr_speech`, `bit_sr_app`).
-- [ ] Implement asynchronous speech output with instant interruption support (Windows SAPI5 / OneCore).
-- [ ] Connect Windows UI Automation Focus Changed event listener.
-- [ ] Speak element name, role, and states upon focus change (Tab / Alt+Tab).
+- [x] Initialize Cargo workspace (`bit_sr_core`, `bit_sr_platform_windows`, `bit_sr_speech`, `bit_sr_engine`).
+- [x] Implement asynchronous speech output with instant interruption support (Windows SAPI 5 dedicated worker).
+- [x] Connect Windows UI Automation Focus Changed event listener with focus event coalescing.
+- [x] Speak element name, role, and states upon focus change (Tab / Alt+Tab) with localized multi-language catalogs.
 
-### Phase 2: Input Handling & Review Navigation
-- [ ] Implement low-level keyboard hook (`bit_sr_modifier` + arrow keys / review cursor).
-- [ ] Implement object navigation (parent, child, previous sibling, next sibling).
-- [ ] Support text reading by character, word, and line in standard text controls.
+### Phase 2: Input Handling, Text Editing & Review Navigation
+- [x] Implement low-level keyboard hook (`WH_KEYBOARD_LL`) with sub-50ns latency and dedicated decoding worker.
+- [x] Implement dynamic SR modifier tracker (CapsLock / Insert) and double-tap hardware CapsLock toggle.
+- [x] Implement text caret reading (Character, Word, Line, Selection, Home/End, Blank detection, typing echo).
+- [ ] Implement object navigation / review cursor (parent, child, previous sibling, next sibling).
+- [ ] Implement Windows system tray daemon lifecycle & single-instance lock.
+- [ ] Implement native Settings GUI dashboard using Slint (`bit_sr_ui`).
 
-### Phase 3: WebAssembly Plugin Engine
+### Phase 3: WebAssembly Plugin Engine & Storefront
 - [ ] Implement Wasm plugin host using `wasmtime`.
-- [ ] Define WebAssembly host functions (speech event interceptor, focus event hook).
-- [ ] Build a sample Wasm plugin that modifies speech output or handles a custom hotkey.
+- [ ] Define WebAssembly host functions (speech event interceptor, focus event hook, custom synthesizer driver).
+- [ ] Build Slint-based Add-on Storefront / Marketplace tab.
 
-### Phase 4: Linux Desktop Integration
+### Phase 4: Virtual Buffer & Advanced Web Navigation
+- [ ] Flatten HTML DOM trees from Chromium and Firefox into navigable linear text buffers.
+- [ ] Implement quick navigation keys (H, K, F, T, B, etc.).
+- [ ] Browse Mode vs. Focus Mode automatic switching.
+
+### Phase 5: Linux Desktop Integration
 - [ ] Implement `bit_sr_platform_linux` connecting to AT-SPI2 via `atspi` / `zbus`.
 - [ ] Map AT-SPI2 events to `bit_sr_core` events.
-- [ ] Connect Linux input capture and Speech Dispatcher.
+- [ ] Connect Linux input capture and Speech Dispatcher (`speechd`).
 
-### Phase 5: Virtual Buffer & Advanced Web Navigation
-- [ ] Flatten HTML DOM trees from Chromium and Firefox into navigable linear text buffers.
-- [ ] Implement quick navigation keys (H, K, F, T, etc.).
-- [ ] MathML and Braille display output integration.
+### Phase 6: Braille Display Hardware Integration
+- [ ] Driver abstraction for refreshable braille displays via USB / Bluetooth.
+- [ ] Liblouis translation integration for contracted and uncontracted Braille.
