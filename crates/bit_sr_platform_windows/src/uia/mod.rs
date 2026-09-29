@@ -138,6 +138,14 @@ impl UiaClient {
         }
     }
 
+    /// Retrieves an element from an HWND with pre-cached properties.
+    pub fn element_from_handle(&self, hwnd: HWND) -> Result<UiaElement> {
+        unsafe {
+            let elem = self.client.ElementFromHandleBuildCache(hwnd, &self.cache_request)?;
+            Ok(UiaElement::new(elem))
+        }
+    }
+
     /// Unregisters all event handlers cleanly.
     pub fn remove_all_event_handlers(&self) {
         unsafe {

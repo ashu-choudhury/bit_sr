@@ -1,14 +1,16 @@
 //! Windows Native Caret Text Provider.
-//! Queries text at the caret via UIA IUIAutomationTextPattern with Win32 Edit fallback.
+//! Queries text at the caret via UIA IUIAutomationTextPattern / TextPattern2 with Win32 Edit fallback.
 
 use crate::common_controls::EditControlReader;
 use crate::uia::patterns::Patterns;
 use crate::uia::UiaClient;
 use bit_sr_core::text::{TextProvider, TextUnit};
 use std::sync::Arc;
+use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Accessibility::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::GetFocus;
-use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetGUIThreadInfo, GUITHREADINFO,
+};
 
 pub struct WindowsTextProvider {
     uia: Arc<UiaClient>,
@@ -17,6 +19,73 @@ pub struct WindowsTextProvider {
 impl WindowsTextProvider {
     pub fn new(uia: Arc<UiaClient>) -> Self {
         Self { uia }
+    }
+
+    /// Obtains the handle of the actual focused child window across any process in Windows.
+    fn get_focused_hwnd() -> HWND {
+        unsafe {
+            let mut gui_info = GUITHREADINFO {
+                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                ..Default::default()
+            };
+            if GetGUIThreadInfo(0, &mut gui_info).is_ok() && !gui_info.hwndFocus.0.is_null() {
+                gui_info.hwndFocus
+            } else {
+                GetForegroundWindow()
+            }
+        }
+    }
+    /// Obtains text at caret from the element or its nearest ancestors (e.g. for PDF documents / frames).
+    fn get_text_from_element_or_ancestors(
+        &self,
+        elem: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+        unit: windows::Win32::UI::Accessibility::TextUnit,
+    ) -> Option<String> {
+        let patterns = Patterns::new(elem);
+        if let Ok(Some(text)) = patterns.get_text_at_caret(unit) {
+            return Some(text);
+        }
+        if let Ok(nav) = self.uia.control_view_navigator() {
+            let mut current = elem.clone();
+            for _ in 0..3 {
+                if let Some(parent) = nav.get_parent(&current) {
+                    let pat = Patterns::new(&parent);
+                    if let Ok(Some(text)) = pat.get_text_at_caret(unit) {
+                        return Some(text);
+                    }
+                    current = parent;
+                } else {
+                    break;
+                }
+            }
+        }
+        None
+    }
+
+    /// Obtains selected text from the element or its nearest ancestors.
+    fn get_selection_from_element_or_ancestors(
+        &self,
+        elem: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+    ) -> Option<String> {
+        let patterns = Patterns::new(elem);
+        if let Ok(Some(text)) = patterns.get_selected_text() {
+            return Some(text);
+        }
+        if let Ok(nav) = self.uia.control_view_navigator() {
+            let mut current = elem.clone();
+            for _ in 0..3 {
+                if let Some(parent) = nav.get_parent(&current) {
+                    let pat = Patterns::new(&parent);
+                    if let Ok(Some(text)) = pat.get_selected_text() {
+                        return Some(text);
+                    }
+                    current = parent;
+                } else {
+                    break;
+                }
+            }
+        }
+        None
     }
 }
 
@@ -30,27 +99,57 @@ impl TextProvider for WindowsTextProvider {
             TextUnit::Document => TextUnit_Document,
         };
 
-        // 1. Try UIA TextPattern on the focused element
+        // 1. Try UIA TextPattern on the focused element and its ancestors
         if let Ok(elem) = self.uia.get_focused_element() {
-            let patterns = Patterns::new(elem.raw());
-            if let Ok(Some(text)) = patterns.get_text_at_caret(uia_unit) {
+            if let Some(text) = self.get_text_from_element_or_ancestors(elem.raw(), uia_unit) {
                 return Some(text);
             }
         }
 
-        // 2. Fallback to classic Win32 Edit / RichEdit control
-        unsafe {
-            let focus_hwnd = GetFocus();
-            let target_hwnd = if !focus_hwnd.0.is_null() {
-                focus_hwnd
-            } else {
-                GetForegroundWindow()
-            };
+        let focus_hwnd = Self::get_focused_hwnd();
 
-            if !target_hwnd.0.is_null() {
-                if let Some(text) = EditControlReader::get_text_at_caret(target_hwnd, unit) {
+        // 2. Try UIA TextPattern on the element obtained directly from the focused HWND
+        if !focus_hwnd.0.is_null() {
+            if let Ok(elem) = self.uia.element_from_handle(focus_hwnd) {
+                if let Some(text) = self.get_text_from_element_or_ancestors(elem.raw(), uia_unit) {
                     return Some(text);
                 }
+            }
+        }
+
+        // 3. Fallback to classic Win32 Edit / RichEdit control
+        if !focus_hwnd.0.is_null() {
+            if let Some(text) = EditControlReader::get_text_at_caret(focus_hwnd, unit) {
+                return Some(text);
+            }
+        }
+
+        None
+    }
+
+    fn get_selected_text(&self) -> Option<String> {
+        // 1. Try UIA TextPattern on focused element and its ancestors
+        if let Ok(elem) = self.uia.get_focused_element() {
+            if let Some(text) = self.get_selection_from_element_or_ancestors(elem.raw()) {
+                return Some(text);
+            }
+        }
+
+        let focus_hwnd = Self::get_focused_hwnd();
+
+        // 2. Try UIA TextPattern on element from focused HWND
+        if !focus_hwnd.0.is_null() {
+            if let Ok(elem) = self.uia.element_from_handle(focus_hwnd) {
+                if let Some(text) = self.get_selection_from_element_or_ancestors(elem.raw()) {
+                    return Some(text);
+                }
+            }
+        }
+
+        // 3. Fallback to classic Win32 Edit control
+        if !focus_hwnd.0.is_null() {
+            if let Some(text) = EditControlReader::get_selected_text(focus_hwnd) {
+                return Some(text);
             }
         }
 

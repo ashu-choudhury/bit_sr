@@ -113,7 +113,7 @@ impl Sapi5Synthesizer {
                         SapiWorkerCmd::Speak { text, interrupt } => {
                             let mut latest_text = text;
                             if interrupt {
-                                // Coalesce pending speak requests to avoid speaking obsolete text
+                                // If multiple interruptive speaks were queued, take the latest one
                                 while let Ok(next) = cmd_rx.try_recv() {
                                     match next {
                                         SapiWorkerCmd::Speak {
@@ -121,10 +121,6 @@ impl Sapi5Synthesizer {
                                             interrupt: true,
                                         } => {
                                             latest_text = t;
-                                        }
-                                        SapiWorkerCmd::Stop => {
-                                            latest_text.clear();
-                                            break;
                                         }
                                         other => {
                                             handle_aux_cmd(&voice, other);
@@ -149,14 +145,6 @@ impl Sapi5Synthesizer {
                             }
                         }
                         SapiWorkerCmd::Stop => {
-                            // Discard any pending speak commands
-                            while let Ok(next) = cmd_rx.try_recv() {
-                                if let SapiWorkerCmd::Speak { .. } = next {
-                                    // discard
-                                } else {
-                                    handle_aux_cmd(&voice, next);
-                                }
-                            }
                             let flags = (SPF_ASYNC.0 | SPF_PURGEBEFORESPEAK.0) as u32;
                             unsafe {
                                 let _ = voice.Speak(PCWSTR::null(), flags, None);

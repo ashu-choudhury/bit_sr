@@ -15,7 +15,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, GetAsyncKeyState, GetKeyState, GetKeyboardLayout, GetKeyboardState,
+    keybd_event, GetAsyncKeyState, GetKeyState, GetKeyboardLayout,
     ToUnicodeEx, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VK_ADD, VK_APPS, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DECIMAL, VK_DELETE, VK_DIVIDE,
     VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F24, VK_HOME, VK_INSERT, VK_LCONTROL, VK_LEFT,
@@ -216,8 +216,10 @@ pub fn configure_sr_keys(config: SRKeyConfig) {
 }
 
 /// Queries the typed unicode character for a physical key down using ToUnicodeEx.
-/// Uses the TM_DONT_MODIFY_KEY_STATE flag (0x04) to avoid destroying dead key / keyboard state.
-unsafe fn get_typed_character(vk_code: u32, scan_code: u32) -> Option<String> {
+/// Uses GetKeyState across all 256 keys (NVDA pattern) so hook thread gets accurate state,
+/// with the TM_DONT_MODIFY_KEY_STATE flag (0x04) to avoid destroying dead key / keyboard state.
+/// Falls back to direct key mapping for letters and numbers so typing echo never drops characters.
+unsafe fn get_typed_character(vk_code: u32, scan_code: u32, key: Key) -> Option<String> {
     unsafe {
         let hwnd = GetForegroundWindow();
         let thread_id = if !hwnd.0.is_null() {
@@ -227,8 +229,22 @@ unsafe fn get_typed_character(vk_code: u32, scan_code: u32) -> Option<String> {
         };
         let hkl = GetKeyboardLayout(thread_id);
 
+        let is_shift = (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0
+            || (GetAsyncKeyState(VK_LSHIFT.0 as i32) as u16 & 0x8000) != 0
+            || (GetAsyncKeyState(VK_RSHIFT.0 as i32) as u16 & 0x8000) != 0;
+        let is_caps = (GetKeyState(VK_CAPITAL.0 as i32) as u16 & 0x0001) != 0;
+        let is_upper = is_shift ^ is_caps;
+
         let mut key_state = [0u8; 256];
-        let _ = GetKeyboardState(&mut key_state);
+        for k in 0..256 {
+            key_state[k] = GetKeyState(k as i32) as u8;
+        }
+        if is_shift {
+            key_state[VK_SHIFT.0 as usize] = 0x80;
+        }
+        if is_caps {
+            key_state[VK_CAPITAL.0 as usize] |= 0x01;
+        }
 
         let mut char_buf = [0u16; 8];
         // Flag 0x0004 is TM_DONT_MODIFY_KEY_STATE (Windows 10 RS2+)
@@ -248,7 +264,74 @@ unsafe fn get_typed_character(vk_code: u32, scan_code: u32) -> Option<String> {
                 return Some(trimmed);
             }
         }
-        None
+
+        // Direct fallback: derive typed character from Key + Shift/CapsLock state
+
+        match key {
+            Key::A => Some(if is_upper { "A" } else { "a" }.to_string()),
+            Key::B => Some(if is_upper { "B" } else { "b" }.to_string()),
+            Key::C => Some(if is_upper { "C" } else { "c" }.to_string()),
+            Key::D => Some(if is_upper { "D" } else { "d" }.to_string()),
+            Key::E => Some(if is_upper { "E" } else { "e" }.to_string()),
+            Key::F => Some(if is_upper { "F" } else { "f" }.to_string()),
+            Key::G => Some(if is_upper { "G" } else { "g" }.to_string()),
+            Key::H => Some(if is_upper { "H" } else { "h" }.to_string()),
+            Key::I => Some(if is_upper { "I" } else { "i" }.to_string()),
+            Key::J => Some(if is_upper { "J" } else { "j" }.to_string()),
+            Key::K => Some(if is_upper { "K" } else { "k" }.to_string()),
+            Key::L => Some(if is_upper { "L" } else { "l" }.to_string()),
+            Key::M => Some(if is_upper { "M" } else { "m" }.to_string()),
+            Key::N => Some(if is_upper { "N" } else { "n" }.to_string()),
+            Key::O => Some(if is_upper { "O" } else { "o" }.to_string()),
+            Key::P => Some(if is_upper { "P" } else { "p" }.to_string()),
+            Key::Q => Some(if is_upper { "Q" } else { "q" }.to_string()),
+            Key::R => Some(if is_upper { "R" } else { "r" }.to_string()),
+            Key::S => Some(if is_upper { "S" } else { "s" }.to_string()),
+            Key::T => Some(if is_upper { "T" } else { "t" }.to_string()),
+            Key::U => Some(if is_upper { "U" } else { "u" }.to_string()),
+            Key::V => Some(if is_upper { "V" } else { "v" }.to_string()),
+            Key::W => Some(if is_upper { "W" } else { "w" }.to_string()),
+            Key::X => Some(if is_upper { "X" } else { "x" }.to_string()),
+            Key::Y => Some(if is_upper { "Y" } else { "y" }.to_string()),
+            Key::Z => Some(if is_upper { "Z" } else { "z" }.to_string()),
+
+            Key::Num0 => Some(if is_shift { ")" } else { "0" }.to_string()),
+            Key::Num1 => Some(if is_shift { "!" } else { "1" }.to_string()),
+            Key::Num2 => Some(if is_shift { "@" } else { "2" }.to_string()),
+            Key::Num3 => Some(if is_shift { "#" } else { "3" }.to_string()),
+            Key::Num4 => Some(if is_shift { "$" } else { "4" }.to_string()),
+            Key::Num5 => Some(if is_shift { "%" } else { "5" }.to_string()),
+            Key::Num6 => Some(if is_shift { "^" } else { "6" }.to_string()),
+            Key::Num7 => Some(if is_shift { "&" } else { "7" }.to_string()),
+            Key::Num8 => Some(if is_shift { "*" } else { "8" }.to_string()),
+            Key::Num9 => Some(if is_shift { "(" } else { "9" }.to_string()),
+
+            Key::Numpad0 => Some("0".to_string()),
+            Key::Numpad1 => Some("1".to_string()),
+            Key::Numpad2 => Some("2".to_string()),
+            Key::Numpad3 => Some("3".to_string()),
+            Key::Numpad4 => Some("4".to_string()),
+            Key::Numpad5 => Some("5".to_string()),
+            Key::Numpad6 => Some("6".to_string()),
+            Key::Numpad7 => Some("7".to_string()),
+            Key::Numpad8 => Some("8".to_string()),
+            Key::Numpad9 => Some("9".to_string()),
+
+            Key::Space => Some(" ".to_string()),
+            Key::Semicolon => Some(if is_shift { ":" } else { ";" }.to_string()),
+            Key::Equals => Some(if is_shift { "+" } else { "=" }.to_string()),
+            Key::Comma => Some(if is_shift { "<" } else { "," }.to_string()),
+            Key::Minus => Some(if is_shift { "_" } else { "-" }.to_string()),
+            Key::Period => Some(if is_shift { ">" } else { "." }.to_string()),
+            Key::Slash => Some(if is_shift { "?" } else { "/" }.to_string()),
+            Key::Grave => Some(if is_shift { "~" } else { "`" }.to_string()),
+            Key::LeftBracket => Some(if is_shift { "{" } else { "[" }.to_string()),
+            Key::Backslash => Some(if is_shift { "|" } else { "\\" }.to_string()),
+            Key::RightBracket => Some(if is_shift { "}" } else { "]" }.to_string()),
+            Key::Apostrophe => Some(if is_shift { "\"" } else { "'" }.to_string()),
+
+            _ => None,
+        }
     }
 }
 
@@ -310,7 +393,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
             && !modifiers.contains(KeyModifiers::CONTROL)
             && !modifiers.contains(KeyModifiers::SUPER)
         {
-            unsafe { get_typed_character(kbd.vkCode, kbd.scanCode) }
+            unsafe { get_typed_character(kbd.vkCode, kbd.scanCode, key) }
         } else {
             None
         };
@@ -328,8 +411,12 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
         if let Ok(guard) = HOOK_CHANNEL.lock() {
             if let Some(ref tx) = *guard {
-                // Instantly signal speech interrupt on any key down that is not a pure modifier
-                if action == KeyAction::Down && !key.is_modifier() {
+                // Instantly signal speech interrupt on physical Control or Escape press
+                if action == KeyAction::Down
+                    && (key == Key::LeftControl
+                        || key == Key::RightControl
+                        || key == Key::Escape)
+                {
                     let _ = tx.try_send(AccessibilityEvent::SpeechInterrupt);
                 }
                 let _ = tx.try_send(AccessibilityEvent::Input(key_event));

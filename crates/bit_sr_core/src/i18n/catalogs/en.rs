@@ -96,6 +96,9 @@ pub fn catalog() -> &'static [(&'static str, &'static str)] {
         ("format.level", "level {level}"),
         ("format.window_suffix", "{title}, window"),
         ("format.blank", "blank"),
+        ("format.selected_text", "selected {text}"),
+        ("format.unselected_text", "unselected {text}"),
+        ("format.selected_all", "selected all"),
 
         // Spoken Key Names
         ("key.space", "space"),

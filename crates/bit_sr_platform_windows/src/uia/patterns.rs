@@ -80,19 +80,76 @@ impl<'a> Patterns<'a> {
         }
     }
 
-    /// Reads text at the current caret / selection position using IUIAutomationTextPattern.
+    /// Reads text at the current caret / selection position using IUIAutomationTextPattern2 / IUIAutomationTextPattern.
     /// Supports TextUnit_Character, TextUnit_Word, and TextUnit_Line.
     pub fn get_text_at_caret(&self, unit: TextUnit) -> Result<Option<String>> {
+        unsafe {
+            // 1. Try TextPattern2 first (Windows 8.1+, modern XAML / Windows 11 Notepad / Chromium)
+            if let Ok(pattern2) = self.element.GetCurrentPattern(UIA_TextPattern2Id) {
+                if let Ok(text_pat2) = pattern2.cast::<IUIAutomationTextPattern2>() {
+                    let mut is_active = windows::core::BOOL(0);
+                    if let Ok(range) = text_pat2.GetCaretRange(&mut is_active) {
+                        let caret_pos = range.Clone()?;
+                        let _ = range.ExpandToEnclosingUnit(unit);
+                        if unit == TextUnit_Character {
+                            if let Ok(cmp) = range.CompareEndpoints(
+                                TextPatternRangeEndpoint_Start,
+                                &caret_pos,
+                                TextPatternRangeEndpoint_Start,
+                            ) {
+                                if cmp < 0 {
+                                    // Caret is past the character (end of line / text) -> Blank
+                                    return Ok(Some(String::new()));
+                                }
+                            }
+                        }
+                        if let Ok(bstr) = range.GetText(-1) {
+                            return Ok(Some(bstr.to_string()));
+                        }
+                    }
+                }
+            }
+
+            // 2. Fallback to standard TextPattern GetSelection()
+            let pattern = self.element.GetCurrentPattern(UIA_TextPatternId)?;
+            let text_pat: IUIAutomationTextPattern = pattern.cast()?;
+            let selection = text_pat.GetSelection()?;
+            if selection.Length()? > 0 {
+                let range = selection.GetElement(0)?;
+                let caret_pos = range.Clone()?;
+                range.ExpandToEnclosingUnit(unit)?;
+                if unit == TextUnit_Character {
+                    if let Ok(cmp) = range.CompareEndpoints(
+                        TextPatternRangeEndpoint_Start,
+                        &caret_pos,
+                        TextPatternRangeEndpoint_Start,
+                    ) {
+                        if cmp < 0 {
+                            return Ok(Some(String::new()));
+                        }
+                    }
+                }
+                let bstr = range.GetText(-1)?;
+                let text = bstr.to_string();
+                return Ok(Some(text));
+            }
+            Ok(None)
+        }
+    }
+
+    /// Reads currently selected text using IUIAutomationTextPattern.
+    pub fn get_selected_text(&self) -> Result<Option<String>> {
         unsafe {
             let pattern = self.element.GetCurrentPattern(UIA_TextPatternId)?;
             let text_pat: IUIAutomationTextPattern = pattern.cast()?;
             let selection = text_pat.GetSelection()?;
             if selection.Length()? > 0 {
                 let range = selection.GetElement(0)?;
-                range.ExpandToEnclosingUnit(unit)?;
                 let bstr = range.GetText(-1)?;
                 let text = bstr.to_string();
-                return Ok(Some(text));
+                if !text.is_empty() {
+                    return Ok(Some(text));
+                }
             }
             Ok(None)
         }

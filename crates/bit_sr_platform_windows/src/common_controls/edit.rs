@@ -45,8 +45,30 @@ impl EditControlReader {
         safe_send_message_timeout(hwnd, EM_LINELENGTH, WPARAM(char_index_in_line), LPARAM(0), 500)
     }
 
-    /// Obtains the text of the window/control.
+    /// Obtains the text of the edit control, working across process boundaries via WM_GETTEXTLENGTH and WM_GETTEXT.
     pub fn get_window_text(hwnd: HWND) -> Option<String> {
+        const WM_GETTEXT: u32 = 0x000D;
+        const WM_GETTEXTLENGTH: u32 = 0x000E;
+
+        if let Some(len) = safe_send_message_timeout(hwnd, WM_GETTEXTLENGTH, WPARAM(0), LPARAM(0), 500) {
+            if len == 0 {
+                return Some(String::new());
+            }
+            let mut buf = vec![0u16; len + 2];
+            if let Some(copied) = safe_send_message_timeout(
+                hwnd,
+                WM_GETTEXT,
+                WPARAM(buf.len()),
+                LPARAM(buf.as_mut_ptr() as isize),
+                500,
+            ) {
+                if copied > 0 {
+                    return Some(String::from_utf16_lossy(&buf[..copied]));
+                }
+            }
+        }
+
+        // Fallback to GetWindowTextW
         let mut buf = [0u16; 4096];
         let len = unsafe { windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut buf) };
         if len > 0 {
@@ -56,15 +78,36 @@ impl EditControlReader {
         }
     }
 
+    /// Obtains currently selected text in a classic Win32 edit control.
+    pub fn get_selected_text(hwnd: HWND) -> Option<String> {
+        let (start, end) = Self::get_selection(hwnd)?;
+        if start == end {
+            return None;
+        }
+        let full_text = Self::get_window_text(hwnd)?;
+        let chars: Vec<char> = full_text.chars().collect();
+        let s = start.min(chars.len());
+        let e = end.min(chars.len());
+        if s < e {
+            Some(chars[s..e].iter().collect())
+        } else {
+            None
+        }
+    }
+
     /// Extracts text at the caret for the given unit (Character, Word, or Line) in a classic Win32 edit control.
     pub fn get_text_at_caret(hwnd: HWND, unit: bit_sr_core::TextUnit) -> Option<String> {
         let (start, _end) = Self::get_selection(hwnd)?;
         let full_text = Self::get_window_text(hwnd)?;
+        let chars: Vec<char> = full_text.chars().collect();
 
         match unit {
             bit_sr_core::TextUnit::Character => {
-                let ch = full_text.chars().nth(start).map(|c| c.to_string()).unwrap_or_default();
-                Some(ch)
+                if start < chars.len() {
+                    Some(chars[start].to_string())
+                } else {
+                    Some(String::new())
+                }
             }
             bit_sr_core::TextUnit::Line => {
                 Some(Self::extract_line_at_offset(&full_text, start))

@@ -281,6 +281,49 @@ impl Key {
         )
     }
 
+    /// Checks if this key represents an alphanumeric character (A-Z or 0-9).
+    pub fn is_alphanumeric(&self) -> bool {
+        matches!(
+            self,
+            Self::A
+                | Self::B
+                | Self::C
+                | Self::D
+                | Self::E
+                | Self::F
+                | Self::G
+                | Self::H
+                | Self::I
+                | Self::J
+                | Self::K
+                | Self::L
+                | Self::M
+                | Self::N
+                | Self::O
+                | Self::P
+                | Self::Q
+                | Self::R
+                | Self::S
+                | Self::T
+                | Self::U
+                | Self::V
+                | Self::W
+                | Self::X
+                | Self::Y
+                | Self::Z
+                | Self::Num0
+                | Self::Num1
+                | Self::Num2
+                | Self::Num3
+                | Self::Num4
+                | Self::Num5
+                | Self::Num6
+                | Self::Num7
+                | Self::Num8
+                | Self::Num9
+        )
+    }
+
     /// Parses a case-insensitive key name with common aliases into a Key enum.
     pub fn from_name(name: &str) -> Option<Self> {
         let clean = name.trim().to_lowercase();

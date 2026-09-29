@@ -16,4 +16,9 @@ pub enum TextUnit {
 pub trait TextProvider: Send + Sync {
     /// Queries text at the current caret position for the given text unit.
     fn get_text_at_caret(&self, unit: TextUnit) -> Option<String>;
+
+    /// Queries the currently selected text, if any.
+    fn get_selected_text(&self) -> Option<String> {
+        None
+    }
 }
