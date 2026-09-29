@@ -129,6 +129,7 @@ pub fn catalog() -> &'static [(&'static str, &'static str)] {
         ("cmd.rate_faster", "Aumentar velocidad de voz"),
         ("cmd.rate_slower", "Disminuir velocidad de voz"),
         ("cmd.toggle_input_help", "Alternar modo de ayuda de entrada"),
+        ("cmd.open_menu", "Abrir menú de bit_sr"),
         ("cmd.quit", "Salir de bit_sr"),
     ]
 }

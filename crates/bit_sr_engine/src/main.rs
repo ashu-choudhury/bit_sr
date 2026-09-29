@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     • CapsLock (default SR key) or Insert
     • SR + 1                    : Toggle Input Help mode (test any key safely!)
     • Double-tap CapsLock       : Toggle Caps Lock hardware state on/off
+    • SR + M                    : Open screen reader menu (left dock)
     • SR + Tab                  : Repeat current focus
     • SR + T                    : Speak active window title
     • SR + S                    : Toggle speech mode (Talk / Mute)
@@ -115,6 +116,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     if let Some(title) = bit_sr_platform_windows::get_foreground_window_title() {
         coordinator.focus_tracker.set_window_title(title);
+    }
+
+    // Initialize Slint Accessible GUI & Menu subsystem
+    match bit_sr_ui::UiHandle::spawn() {
+        Ok(ui) => {
+            println!("  Slint GUI & left-side menu initialized.");
+            coordinator.set_ui_handle(ui);
+        }
+        Err(e) => {
+            eprintln!("  Warning: Could not initialize Slint UI subsystem: {:?}", e);
+        }
     }
 
     coordinator.run(event_rx, shutdown_rx);

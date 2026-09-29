@@ -1,0 +1,271 @@
+import { Button, CheckBox, ComboBox, Slider, TabWidget, VerticalBox, HorizontalBox, ScrollView } from "std-widgets.slint";
+
+export struct VoiceEntry {
+    id: string,
+    name: string,
+}
+
+export struct PluginEntry {
+    id: string,
+    name: string,
+    version: string,
+    tier: string,
+    enabled: bool,
+}
+
+export component SettingsWindow inherits Window {
+    title: "bit_sr Settings";
+    width: 640px;
+    height: 480px;
+    background: #181825;
+
+    in-out property <int> active_tab: 0;
+
+    // General Settings Properties
+    in-out property <[string]> languages: ["English", "Español", "हिन्दी (Hindi)", "Français", "Deutsch"];
+    in-out property <int> selected_language_index: 0;
+    in-out property <bool> start_at_logon: false;
+    in-out property <int> sr_modifier_index: 0; // 0 = CapsLock, 1 = Insert, 2 = Both
+
+    // Speech Settings Properties
+    in-out property <[string]> synth_drivers: ["Windows SAPI 5", "Windows OneCore", "Mock (Silent)"];
+    in-out property <int> selected_synth_index: 0;
+    in-out property <[string]> voice_names: ["Microsoft David Desktop", "Microsoft Zira Desktop", "Microsoft Mark Desktop"];
+    in-out property <int> selected_voice_index: 0;
+    in-out property <float> speech_rate: 50.0;
+    in-out property <float> speech_volume: 80.0;
+    in-out property <float> speech_pitch: 50.0;
+
+    // Typing Echo
+    in-out property <[string]> echo_modes: ["Characters", "Words", "Both Characters and Words", "None"];
+    in-out property <int> selected_echo_index: 2;
+
+    // Extensions
+    in-out property <[PluginEntry]> plugins: [
+        { id: "org.bitsr.quick_notes", name: "Quick Notes", version: "1.0.0", tier: "Tier 1 (Sandboxed)", enabled: true },
+        { id: "org.bitsr.clock_chime", name: "Hourly Chime", version: "0.2.0", tier: "Tier 1 (Sandboxed)", enabled: false },
+    ];
+
+    callback save_requested();
+    callback cancel_requested();
+    callback apply_requested();
+    callback toggle_plugin(string /* id */, bool /* enabled */);
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        tabs := TabWidget {
+            Tab {
+                title: "🌐 General";
+                VerticalBox {
+                    spacing: 14px;
+                    padding: 12px;
+
+                    HorizontalBox {
+                        Text {
+                            text: "Language & Locale:";
+                            vertical-alignment: center;
+                            width: 160px;
+                            color: #cdd6f4;
+                        }
+                        ComboBox {
+                            model: root.languages;
+                            current-index <=> root.selected_language_index;
+                            accessible-label: "Language and locale";
+                        }
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "Screen Reader Key:";
+                            vertical-alignment: center;
+                            width: 160px;
+                            color: #cdd6f4;
+                        }
+                        ComboBox {
+                            model: ["CapsLock (Default)", "Insert", "Both CapsLock and Insert"];
+                            current-index <=> root.sr_modifier_index;
+                            accessible-label: "Screen reader modifier key";
+                        }
+                    }
+
+                    CheckBox {
+                        text: "Start bit_sr automatically at Windows logon";
+                        checked <=> root.start_at_logon;
+                    }
+                }
+            }
+
+            Tab {
+                title: "🔊 Speech";
+                VerticalBox {
+                    spacing: 12px;
+                    padding: 12px;
+
+                    HorizontalBox {
+                        Text {
+                            text: "Synthesizer Driver:";
+                            vertical-alignment: center;
+                            width: 140px;
+                            color: #cdd6f4;
+                        }
+                        ComboBox {
+                            model: root.synth_drivers;
+                            current-index <=> root.selected_synth_index;
+                            accessible-label: "Synthesizer driver";
+                        }
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "Voice:";
+                            vertical-alignment: center;
+                            width: 140px;
+                            color: #cdd6f4;
+                        }
+                        ComboBox {
+                            model: root.voice_names;
+                            current-index <=> root.selected_voice_index;
+                            accessible-label: "Active voice";
+                        }
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "Rate (" + Math.round(root.speech_rate) + "%):";
+                            vertical-alignment: center;
+                            width: 140px;
+                            color: #cdd6f4;
+                        }
+                        Slider {
+                            minimum: 0;
+                            maximum: 100;
+                            value <=> root.speech_rate;
+                            accessible-label: "Speech rate";
+                        }
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "Volume (" + Math.round(root.speech_volume) + "%):";
+                            vertical-alignment: center;
+                            width: 140px;
+                            color: #cdd6f4;
+                        }
+                        Slider {
+                            minimum: 0;
+                            maximum: 100;
+                            value <=> root.speech_volume;
+                            accessible-label: "Speech volume";
+                        }
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "Pitch (" + Math.round(root.speech_pitch) + "%):";
+                            vertical-alignment: center;
+                            width: 140px;
+                            color: #cdd6f4;
+                        }
+                        Slider {
+                            minimum: 0;
+                            maximum: 100;
+                            value <=> root.speech_pitch;
+                            accessible-label: "Speech pitch";
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "⌨️ Typing";
+                VerticalBox {
+                    spacing: 14px;
+                    padding: 12px;
+
+                    HorizontalBox {
+                        Text {
+                            text: "Typing Echo Mode:";
+                            vertical-alignment: center;
+                            width: 160px;
+                            color: #cdd6f4;
+                        }
+                        ComboBox {
+                            model: root.echo_modes;
+                            current-index <=> root.selected_echo_index;
+                            accessible-label: "Typing echo mode";
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "🧩 Extensions";
+                ScrollView {
+                    VerticalBox {
+                        spacing: 8px;
+                        padding: 8px;
+
+                        for plugin in root.plugins: Rectangle {
+                            height: 52px;
+                            background: #1e1e2e;
+                            border-radius: 6px;
+
+                            HorizontalLayout {
+                                padding: 10px;
+                                spacing: 10px;
+                                alignment: space-between;
+
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    Text {
+                                        text: plugin.name + " v" + plugin.version;
+                                        font-weight: 600;
+                                        color: #cdd6f4;
+                                    }
+                                    Text {
+                                        text: plugin.tier;
+                                        font-size: 11px;
+                                        color: #a6adc8;
+                                    }
+                                }
+
+                                CheckBox {
+                                    text: plugin.enabled ? "Enabled" : "Disabled";
+                                    checked: plugin.enabled;
+                                    toggled => {
+                                        root.toggle_plugin(plugin.id, self.checked);
+                                    }
+                                    accessible-label: plugin.name + " " + (plugin.enabled ? "enabled" : "disabled");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Action Buttons Row
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: end;
+
+            Button {
+                text: "OK";
+                primary: true;
+                clicked => { root.save_requested(); }
+            }
+
+            Button {
+                text: "Apply";
+                clicked => { root.apply_requested(); }
+            }
+
+            Button {
+                text: "Cancel";
+                clicked => { root.cancel_requested(); }
+            }
+        }
+    }
+}

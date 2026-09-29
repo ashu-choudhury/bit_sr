@@ -24,6 +24,7 @@ pub enum ScreenReaderCommand {
     RateFaster,
     RateSlower,
     ToggleInputHelp,
+    OpenMenu,
     Quit,
 }
 
@@ -39,6 +40,7 @@ impl ScreenReaderCommand {
             Self::RateFaster => "speech.rate_faster",
             Self::RateSlower => "speech.rate_slower",
             Self::ToggleInputHelp => "help.toggle_input_help",
+            Self::OpenMenu => "core.open_menu",
             Self::Quit => "app.quit",
         }
     }
@@ -46,14 +48,13 @@ impl ScreenReaderCommand {
     /// Functional category (e.g. "System", "Speech", "Help").
     pub fn category(&self) -> &'static str {
         match self {
-            Self::AnnounceTitle | Self::RepeatFocus => "System",
+            Self::AnnounceTitle | Self::RepeatFocus | Self::OpenMenu | Self::Quit => "System",
             Self::ToggleSpeechMode
             | Self::VolumeUp
             | Self::VolumeDown
             | Self::RateFaster
             | Self::RateSlower => "Speech",
             Self::ToggleInputHelp => "Help",
-            Self::Quit => "System",
         }
     }
 
@@ -68,6 +69,7 @@ impl ScreenReaderCommand {
             Self::RateFaster => "cmd.rate_faster",
             Self::RateSlower => "cmd.rate_slower",
             Self::ToggleInputHelp => "cmd.toggle_input_help",
+            Self::OpenMenu => "cmd.open_menu",
             Self::Quit => "cmd.quit",
         }
     }
@@ -88,6 +90,7 @@ impl ScreenReaderCommand {
             Self::RateFaster => "Increase Speech Rate",
             Self::RateSlower => "Decrease Speech Rate",
             Self::ToggleInputHelp => "Toggle Input Help Mode",
+            Self::OpenMenu => "Open bit_sr Menu",
             Self::Quit => "Exit bit_sr",
         }
     }
@@ -107,6 +110,7 @@ impl ScreenReaderCommand {
             "help.toggle_input_help" | "toggleinputhelp" | "inputhelp" => {
                 Some(Self::ToggleInputHelp)
             }
+            "core.open_menu" | "openmenu" | "menu" => Some(Self::OpenMenu),
             "app.quit" | "quit" | "exit" => Some(Self::Quit),
             _ => None,
         }
@@ -183,6 +187,12 @@ impl GestureMap {
         self.bind(
             InputGesture::new(KeyModifiers::SR, Key::Numpad1),
             ScreenReaderCommand::ToggleInputHelp,
+        );
+
+        // SR + M -> Open Menu
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::M),
+            ScreenReaderCommand::OpenMenu,
         );
 
         // Ctrl + Alt + Q and SR + Q -> Quit
@@ -268,6 +278,7 @@ impl CommandDispatcher {
                 0x54 => Key::T,
                 0x51 => Key::Q,
                 0x53 => Key::S,
+                0x4D => Key::M,
                 0x09 => Key::Tab,
                 0x26 => Key::UpArrow,
                 0x28 => Key::DownArrow,
@@ -402,5 +413,13 @@ mod tests {
         let cmd2 = dispatcher.process_key(&key_sr_1);
         assert_eq!(cmd2, Some(ScreenReaderCommand::ToggleInputHelp));
         assert!(!dispatcher.input_help_active);
+    }
+
+    #[test]
+    fn test_open_menu_shortcut() {
+        let mut dispatcher = CommandDispatcher::new();
+        let key_sr_m = KeyEvent::new(Key::M, KeyAction::Down, KeyModifiers::SR);
+        let cmd = dispatcher.process_key(&key_sr_m);
+        assert_eq!(cmd, Some(ScreenReaderCommand::OpenMenu));
     }
 }
