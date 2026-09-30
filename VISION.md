@@ -91,6 +91,13 @@ Unlike incumbent screen readers that rely on Python runtimes with Global Interpr
 - **Retained-mode accessibility:** Empirically verified to provide 100% accessible controls (combo boxes, sliders, checkboxes, text fields) to screen readers out of the box.
 - Compiles natively to a single binary with zero external DLLs, avoiding WebView/Electron memory overhead and multi-platform UI code fragmentation.
 
+### Pillar 6: Self-Healing & Resilient Tree Architecture
+- **Eliminating the Screen Reader "Dead Zone":** Traditional screen readers (NVDA, JAWS, Orca) frequently freeze or fall silent when an application crashes, recycles a window, or disconnects its accessibility provider (`RPC_E_DISCONNECTED`, broken D-Bus socket).
+- **Automatic Stale Node Invalidation:** When a queried node returns an RPC disconnect or dead handle error, `bit_sr` marks the node as stale and walks up to the nearest live ancestor or top-level window root to seamlessly rebuild the subtree.
+- **Provider Connection Auto-Recovery:** Automatic re-registration of UIA (`put_ConnectionRecoveryBehavior`), AT-SPI2, and Android Binder listeners if the host application restarts.
+- **Single-Page App (SPA) Dynamic Re-Anchoring:** Detects dynamic root mutations in web apps (Chromium / Firefox) and re-linearizes the virtual buffer without stranding the user.
+- **Hung Window Watchdog:** Deadlock prevention with strict 200ms timeouts on cross-process queries, gracefully announcing *"Application not responding"* instead of locking up the screen reader.
+
 ---
 
 ## 4. Reference Codebases

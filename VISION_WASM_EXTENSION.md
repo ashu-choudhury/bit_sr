@@ -43,6 +43,8 @@ flowchart TD
   Sensitive permissions and full system access require explicit user approval via accessible native dialogs in the Slint GUI. Permissions can be revoked at any time by the user.
 * **Invariant 4: Dual License Freedom (MIT / Apache-2.0)**  
   Extensions are not forced into viral copyleft licenses. Developers and commercial vendors can release open-source or proprietary extensions freely.
+* **Invariant 5: Universal Ahead-of-Time (AOT) Pre-Compilation (`.cwasm`)**  
+  Regardless of the host platform (Windows, Linux, or Android), extensions are never compiled on-the-fly at runtime via JIT. Upon installation or update of a `.bsp` package, the host pre-compiles `plugin.wasm` Ahead-of-Time into a native `.cwasm` binary. At application boot, plugins are memory-mapped in microseconds via `Module::deserialize()`, ensuring 0ms startup latency, zero battery drain, and 100% compliance with OS security policies (Windows ACG, Linux PaX, Android SELinux W^X).
 
 ---
 

@@ -121,3 +121,9 @@ flowchart TD
 * **Phase 7: Hardware Braille Display Support**
   - Driver abstraction for Focus, Brailliant, Orbit, and HumanWare braille displays via USB / Bluetooth.
   - Liblouis translation integration for contracted and uncontracted Braille.
+* **Phase 8: Mobile Android Subsystem (`bit_sr_platform_android`)**
+  - Thin Kotlin `AccessibilityService` APK loading native `libbit_sr.so` via JNI.
+  - Native touch gesture mapping (Flick Right/Left, Double Tap) dispatched into unified `ScreenReaderCommand`.
+  - Accessible Slint settings dashboard using official `accesskit_android` backend.
+  - Ahead-of-Time (AOT) `.cwasm` compilation for `bit_sr_plugin` bypassing mobile SELinux JIT restrictions.
+  - Android `TextToSpeech` JNI synthesizer driver & AAudio audio hub.

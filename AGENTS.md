@@ -21,6 +21,9 @@ git submodule update --init --recursive
 Before implementing or modifying platform-specific features, consult the self-contained technical specifications at the project root:
 * **[`WINDOWS.md`](WINDOWS.md):** Complete Windows OS accessibility architecture & syscall blueprint (Win32 low-level hooks, UIA COM interfaces, event coalescing, cache requests, common controls, and File Explorer quirks).
 * **[`LINUX.md`](LINUX.md):** Complete Linux AT-SPI2 D-Bus & evdev architecture blueprint (D-Bus interfaces, cache subtree batching, Wayland input capture, and GNOME Shell/Nautilus navigation).
+* **[`CHROMIUM.md`](CHROMIUM.md):** Complete Chromium, Chrome, Microsoft Edge, Electron, and WebView2 accessibility architecture & virtual buffer blueprint (`AXMode`, Browse Mode vs. Focus Mode state machine, quick nav, ARIA live regions, and all 12 Blink heuristics).
+* **[`FIREFOX.md`](FIREFOX.md):** Complete Mozilla Firefox, Tor Browser, and Gecko accessibility architecture blueprint (`accessible/` engine, "Cache the World" parent-process IPC, `IAccessible2`, `ISimpleDOMNode`, and anti-fingerprinting).
+* **[`ANDROID.md`](ANDROID.md):** Complete Android OS & AOSP accessibility architecture blueprint (`AccessibilityService`, `AccessibilityNodeInfo` mapping, touch gestures, decoupled dual-focus, `accesskit_android`, and AOT `.cwasm`).
 * **[`VISION.md`](VISION.md):** High-level roadmap, core philosophies, threat modeling, and overall project pillars.
 * **[`VISION_WASM_EXTENSION.md`](VISION_WASM_EXTENSION.md):** Complete WebAssembly extension ecosystem specification (Wasmtime runtime, scoped storage, two-tier permission model, host gatekeeper, and multi-language support).
 

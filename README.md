@@ -122,6 +122,9 @@ The repository maintains comprehensive architectural documentation:
 * **[Vision & Architecture (VISION.md)](VISION.md):** Architectural roadmap, threat modeling, and WebAssembly plugin engine design.
 * **[Windows Subsystem Specification (WINDOWS.md)](WINDOWS.md):** Win32 syscall catalog, UIA COM interfaces, event coalescing, and all 9 File Explorer heuristics.
 * **[Linux Subsystem Specification (LINUX.md)](LINUX.md):** AT-SPI2 D-Bus IPC protocol, `evdev` input handling, and Wayland desktop integration.
+* **[Chromium & Web Specification (CHROMIUM.md)](CHROMIUM.md):** Chromium accessibility runtime, multi-process topology, `AXMode`, Browse Mode vs. Focus Mode state machine, quick nav, and all 12 Blink heuristics.
+* **[Mozilla Firefox & Gecko Specification (FIREFOX.md)](FIREFOX.md):** Gecko accessibility architecture, "Cache the World" parent-process IPC, `IAccessible2`, `ISimpleDOMNode`, and Tor Browser anti-fingerprinting.
+* **[Android Subsystem Specification (ANDROID.md)](ANDROID.md):** AOSP accessibility framework, `AccessibilityService`, `AccessibilityNodeInfo` mapping, touch exploration, decoupled dual-focus, and `accesskit_android`.
 * **[Agent Guidelines (AGENTS.md)](AGENTS.md):** Coding invariants, COM safety rules, and architecture guardrails for contributors and AI agents.
 
 ---
