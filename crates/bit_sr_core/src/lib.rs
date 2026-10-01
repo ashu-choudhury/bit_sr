@@ -27,5 +27,5 @@ pub use node::{
 pub use roles::Role;
 pub use states::State;
 pub use text::{TextProvider, TextUnit};
-pub use tree::{AccessibilityTree, NavDirection, NavFilter};
+pub use tree::{AccessibilityTree, NavDirection, NavFilter, TreeProvider};
 

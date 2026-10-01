@@ -583,6 +583,7 @@ dependencies = [
  "bit_sr_platform_windows",
  "bit_sr_speech",
  "bit_sr_ui",
+ "bit_sr_web",
  "crossbeam-channel",
  "ctrlc",
  "env_logger",
@@ -642,6 +643,14 @@ dependencies = [
  "slint",
  "slint-build",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "bit_sr_web"
+version = "0.1.0"
+dependencies = [
+ "bit_sr_core",
+ "log",
 ]
 
 [[package]]

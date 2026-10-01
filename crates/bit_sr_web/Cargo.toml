@@ -1,0 +1,12 @@
+[package]
+name = "bit_sr_web"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Universal Web Subsystem: Virtual Buffer, Browse/Focus state machine, single-letter quick navigation, ARIA semantics, and table traversal"
+
+[dependencies]
+bit_sr_core = { path = "../bit_sr_core" }
+log = "0.4"
+
+[dev-dependencies]

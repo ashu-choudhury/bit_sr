@@ -69,6 +69,9 @@ pub enum Role {
     Terminal = 61,
     TreeGrid = 62,
     Math = 63,
+    Figure = 64,
+    BlockQuote = 65,
+    Article = 66,
 }
 
 impl Role {
@@ -139,6 +142,9 @@ impl Role {
             Self::Terminal => "terminal",
             Self::TreeGrid => "tree grid",
             Self::Math => "math",
+            Self::Figure => "figure",
+            Self::BlockQuote => "blockquote",
+            Self::Article => "article",
         }
     }
 
@@ -209,6 +215,9 @@ impl Role {
             Self::Terminal => "role.terminal",
             Self::TreeGrid => "role.treegrid",
             Self::Math => "role.math",
+            Self::Figure => "role.figure",
+            Self::BlockQuote => "role.blockquote",
+            Self::Article => "role.article",
         }
     }
 

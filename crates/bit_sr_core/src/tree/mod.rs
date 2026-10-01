@@ -397,6 +397,13 @@ impl AccessibilityTree {
     }
 }
 
+/// Abstract provider trait allowing platform drivers to harvest an in-memory accessibility tree
+/// for virtual buffer compilation and linear web navigation.
+pub trait TreeProvider: Send + Sync {
+    /// Harvests an accessible subtree rooted at the current focus or document root.
+    fn harvest_tree(&self, max_depth: usize, max_nodes: usize) -> Option<AccessibilityTree>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

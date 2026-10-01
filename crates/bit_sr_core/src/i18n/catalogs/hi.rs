@@ -130,6 +130,14 @@ pub fn catalog() -> &'static [(&'static str, &'static str)] {
         ("cmd.rate_slower", "भाषण गति घटाएं"),
         ("cmd.toggle_input_help", "इनपुट सहायता मोड टॉगल करें"),
         ("cmd.open_menu", "bit_sr मेनू खोलें"),
+        ("cmd.toggle_browse_mode", "ब्राउज़ / फ़ोकस मोड बदलें"),
         ("cmd.quit", "bit_sr से बाहर निकलें"),
+
+        // Web Subsystem
+        ("web.browse_mode", "ब्राउज़ मोड"),
+        ("web.focus_mode", "फ़ोकस मोड"),
+        ("role.figure", "चित्र"),
+        ("role.blockquote", "उद्धरण"),
+        ("role.article", "लेख"),
     ]
 }

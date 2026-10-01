@@ -130,6 +130,14 @@ pub fn catalog() -> &'static [(&'static str, &'static str)] {
         ("cmd.rate_slower", "Decrease Speech Rate"),
         ("cmd.toggle_input_help", "Toggle Input Help Mode"),
         ("cmd.open_menu", "Open bit_sr Menu"),
+        ("cmd.toggle_browse_mode", "Toggle Browse / Focus Mode"),
         ("cmd.quit", "Exit bit_sr"),
+
+        // Web Subsystem
+        ("web.browse_mode", "Browse mode"),
+        ("web.focus_mode", "Focus mode"),
+        ("role.figure", "figure"),
+        ("role.blockquote", "blockquote"),
+        ("role.article", "article"),
     ]
 }
