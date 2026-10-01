@@ -42,6 +42,36 @@ unsafe extern "system" fn win_event_callback(
         return;
     }
 
+    let is_chromium = crate::apps::ChromiumFilter::is_chromium_hwnd(hwnd);
+
+    // On foreground event for Chromium/Edge/WebView2, elevate Blink's AXMode to full screen reader mode
+    if event == EVENT_SYSTEM_FOREGROUND && is_chromium {
+        crate::apps::ChromiumFilter::activate_chromium_ax_mode(hwnd);
+    }
+
+    // Deduplication rule:
+    // 1. If this is a Chromium/Edge/WebView2 window, unconditionally suppress MSAA events.
+    //    Chromium's internal MSAA sends negative child IDs with raw child numbers that leak
+    //    "unknown numbers" to screen readers; UIA handles Chromium with 100% fidelity.
+    // 2. If the window natively implements a UI Automation server-side provider, suppress
+    //    MSAA focus, value, name, selection, and state events.
+    if is_chromium {
+        return;
+    }
+
+    let has_uia_server = unsafe {
+        windows::Win32::UI::Accessibility::UiaHasServerSideProvider(hwnd).as_bool()
+    };
+    if has_uia_server
+        && (event == EVENT_OBJECT_FOCUS
+            || event == EVENT_OBJECT_VALUECHANGE
+            || event == EVENT_OBJECT_NAMECHANGE
+            || event == EVENT_OBJECT_SELECTION
+            || event == EVENT_OBJECT_STATECHANGE)
+    {
+        return;
+    }
+
     let mut p_acc: Option<IAccessible> = None;
     let mut var_child = VARIANT::default();
 
@@ -60,7 +90,7 @@ unsafe extern "system" fn win_event_callback(
     }
 
     if let Some(acc) = p_acc {
-        let msaa = MsaaElement::new(acc, id_child, hwnd.0 as usize);
+        let msaa = MsaaElement::new(acc, var_child, id_child, hwnd.0 as usize);
         let node = msaa.to_accessible_node();
 
         if let Ok(guard) = MSAA_CHANNEL.lock() {

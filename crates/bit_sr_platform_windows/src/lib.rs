@@ -63,6 +63,15 @@ impl WindowsPlatform {
         log::info!("Starting Microsoft UI Automation client...");
         let uia_client = Arc::new(UiaClient::new(tx, explorer_filter.clone())?);
 
+        // If foreground window is Chromium/Edge/WebView2, elevate its AXMode immediately
+        unsafe {
+            let fg = windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
+            if !fg.0.is_null() && apps::ChromiumFilter::is_chromium_hwnd(fg) {
+                log::info!("Foreground window is Chromium/Edge; activating AXMode...");
+                apps::ChromiumFilter::activate_chromium_ax_mode(fg);
+            }
+        }
+
         log::info!("Windows accessibility platform successfully started!");
 
         Ok(Self {
@@ -91,6 +100,13 @@ impl WindowsPlatform {
         })
     }
 
+    /// Obtains a TreeProvider implementation for harvesting accessible subtrees in web documents.
+    pub fn tree_provider(&self) -> Option<Arc<dyn bit_sr_core::tree::TreeProvider>> {
+        self.uia_client.as_ref().map(|uia| {
+            Arc::new(WindowsTreeProvider { uia: uia.clone() }) as Arc<dyn bit_sr_core::tree::TreeProvider>
+        })
+    }
+
     /// Cleanly terminates all hooks and event listeners.
     pub fn stop(&mut self) {
         log::info!("Stopping Windows accessibility platform...");
@@ -104,6 +120,19 @@ impl WindowsPlatform {
             uia.remove_all_event_handlers();
         }
         let _ = self.com_guard.take();
+    }
+}
+
+/// Windows UIA implementation of TreeProvider for harvesting accessible subtrees in web documents.
+pub struct WindowsTreeProvider {
+    uia: Arc<UiaClient>,
+}
+
+impl bit_sr_core::tree::TreeProvider for WindowsTreeProvider {
+    fn harvest_tree(&self, max_depth: usize, max_nodes: usize) -> Option<bit_sr_core::tree::AccessibilityTree> {
+        let nav = self.uia.control_view_navigator().ok()?;
+        let focused = self.uia.get_focused_element().ok()?;
+        Some(nav.harvest_subtree(focused.raw(), max_depth, max_nodes))
     }
 }
 
