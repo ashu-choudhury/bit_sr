@@ -25,6 +25,8 @@ pub struct EngineCoordinator {
     pub last_selection: Option<String>,
     pub ui_handle: Option<bit_sr_ui::UiHandle>,
     pub event_tx: Option<crossbeam_channel::Sender<AccessibilityEvent>>,
+    pub web_controller: Option<bit_sr_web::WebController>,
+    pub tree_provider: Option<std::sync::Arc<dyn bit_sr_core::tree::TreeProvider>>,
 }
 
 impl EngineCoordinator {
@@ -43,6 +45,8 @@ impl EngineCoordinator {
             last_selection: None,
             ui_handle: None,
             event_tx: None,
+            web_controller: None,
+            tree_provider: None,
         }
     }
 
@@ -60,6 +64,8 @@ impl EngineCoordinator {
             last_selection: None,
             ui_handle: None,
             event_tx: None,
+            web_controller: None,
+            tree_provider: None,
         }
     }
 
@@ -78,9 +84,29 @@ impl EngineCoordinator {
         self.text_provider = Some(provider);
     }
 
+    /// Sets the platform tree provider for harvesting accessibility trees in web documents.
+    pub fn set_tree_provider(&mut self, provider: std::sync::Arc<dyn bit_sr_core::tree::TreeProvider>) {
+        self.tree_provider = Some(provider);
+    }
+
     /// Sets the active locale at runtime.
     pub fn set_locale(&self, locale: &str) {
         self.loc.set_locale(locale);
+    }
+
+    /// Sets the active web controller for web documents and webviews.
+    pub fn set_web_controller(&mut self, controller: bit_sr_web::WebController) {
+        self.web_controller = Some(controller);
+    }
+
+    /// Sets the active virtual buffer for web documents.
+    pub fn set_web_buffer(&mut self, buffer: bit_sr_web::VirtualBuffer) {
+        self.web_controller = Some(bit_sr_web::WebController::new(buffer));
+    }
+
+    /// Manually toggles Browse Mode / Focus Mode in the active WebController.
+    pub fn toggle_browse_mode(&mut self) -> EngineAction {
+        self.execute_command(ScreenReaderCommand::ToggleBrowseMode)
     }
 
     /// Handles a single incoming event from the platform.
@@ -193,6 +219,51 @@ impl EngineCoordinator {
                             }
                         }
                         _ => {}
+                    }
+                }
+
+                // Web Virtual Buffer Navigation (Browse Mode & Focus Mode)
+                if let Some(ref mut wc) = self.web_controller {
+                    let actions = wc.handle_key(&key);
+                    for action in actions {
+                        match action {
+                            bit_sr_web::WebAction::Speak(text) => {
+                                let _ = self.speech_hub.speak(&text, SpeechPriority::Now);
+                                return EngineAction::Spoke(text);
+                            }
+                            bit_sr_web::WebAction::SwitchMode(mode) => {
+                                let msg = match mode {
+                                    bit_sr_web::NavigationMode::Browse => self.loc.t("web.browse_mode"),
+                                    bit_sr_web::NavigationMode::Focus => self.loc.t("web.focus_mode"),
+                                };
+                                let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                                return EngineAction::Spoke(msg.to_string());
+                            }
+                            bit_sr_web::WebAction::PerformAction { .. } => {}
+                            bit_sr_web::WebAction::PlaySound(_) | bit_sr_web::WebAction::None => {}
+                            bit_sr_web::WebAction::PassThrough => break,
+                        }
+                    }
+                    if wc.mode() == bit_sr_web::NavigationMode::Browse {
+                        // In Browse Mode, intercept navigation keys and quick-nav without falling through
+                        match key.key {
+                            bit_sr_core::input::Key::UpArrow
+                            | bit_sr_core::input::Key::DownArrow
+                            | bit_sr_core::input::Key::LeftArrow
+                            | bit_sr_core::input::Key::RightArrow
+                            | bit_sr_core::input::Key::Home
+                            | bit_sr_core::input::Key::End => return EngineAction::None,
+                            _ => {
+                                if bit_sr_web::QuickNavKey::from_key(
+                                    key.key,
+                                    key.modifiers.contains(bit_sr_core::input::KeyModifiers::SHIFT),
+                                )
+                                .is_some()
+                                {
+                                    return EngineAction::None;
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -458,6 +529,38 @@ impl EngineCoordinator {
                 );
                 announcement.push_str(&node_text);
 
+                // Ensure WebController is active if focus enters a web document
+                if self.web_controller.is_none() && focused_node.role == bit_sr_core::roles::Role::Document {
+                    let buffer = if let Some(ref tp) = self.tree_provider {
+                        if let Some(tree) = tp.harvest_tree(14, 1500) {
+                            bit_sr_web::Linearizer::compile(&tree, focused_node.id)
+                        } else {
+                            let mut b = bit_sr_web::VirtualBuffer::new(focused_node.id);
+                            b.title = focused_node.name.clone();
+                            b
+                        }
+                    } else {
+                        let mut b = bit_sr_web::VirtualBuffer::new(focused_node.id);
+                        b.title = focused_node.name.clone();
+                        b
+                    };
+                    self.web_controller = Some(bit_sr_web::WebController::new(buffer));
+                }
+
+                // Update WebController automatic Browse/Focus mode state machine
+                if let Some(ref mut wc) = self.web_controller {
+                    let web_actions = wc.handle_focus_change(focused_node);
+                    for action in web_actions {
+                        if let bit_sr_web::WebAction::SwitchMode(mode) = action {
+                            let mode_msg = match mode {
+                                bit_sr_web::NavigationMode::Browse => self.loc.t("web.browse_mode"),
+                                bit_sr_web::NavigationMode::Focus => self.loc.t("web.focus_mode"),
+                            };
+                            let _ = self.speech_hub.speak(mode_msg, SpeechPriority::Now);
+                        }
+                    }
+                }
+
                 if !announcement.trim().is_empty() {
                     let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
                     EngineAction::Spoke(announcement)
@@ -703,6 +806,54 @@ impl EngineCoordinator {
                 #[cfg(windows)]
                 if let Some(ref tx) = self.event_tx {
                     bit_sr_platform_windows::open_menu_async(tx.clone());
+                }
+                EngineAction::None
+            }
+
+            ScreenReaderCommand::ToggleBrowseMode => {
+                if let Some(ref mut wc) = self.web_controller {
+                    if wc.buffer.line_count() == 0 {
+                        if let Some(ref tp) = self.tree_provider {
+                            let root_id = wc.buffer.document_node_id;
+                            if let Some(tree) = tp.harvest_tree(14, 1500) {
+                                wc.buffer = bit_sr_web::Linearizer::compile(&tree, root_id);
+                            }
+                        }
+                    }
+                    let actions = wc.toggle_mode();
+                    for action in actions {
+                        if let bit_sr_web::WebAction::Speak(ref msg) = action {
+                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                            return EngineAction::Spoke(msg.clone());
+                        }
+                    }
+                } else {
+                    let root_id = self
+                        .focus_tracker
+                        .current_focus()
+                        .map(|n| n.id)
+                        .unwrap_or(bit_sr_core::node::NodeId(0));
+                    let buffer = if let Some(ref tp) = self.tree_provider {
+                        if let Some(tree) = tp.harvest_tree(14, 1500) {
+                            bit_sr_web::Linearizer::compile(&tree, root_id)
+                        } else {
+                            bit_sr_web::VirtualBuffer::new(root_id)
+                        }
+                    } else {
+                        bit_sr_web::VirtualBuffer::new(root_id)
+                    };
+                    let mut wc = bit_sr_web::WebController::new(buffer);
+                    let actions = wc.toggle_mode();
+                    self.web_controller = Some(wc);
+                    for action in actions {
+                        if let bit_sr_web::WebAction::Speak(ref msg) = action {
+                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                            return EngineAction::Spoke(msg.clone());
+                        }
+                    }
+                    let msg = self.loc.t("web.browse_mode");
+                    let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                    return EngineAction::Spoke(msg.to_string());
                 }
                 EngineAction::None
             }
@@ -1192,6 +1343,75 @@ mod tests {
         assert_eq!(action3, EngineAction::Quit);
 
         assert_eq!(history.get_spoken_history(), vec!["Speech muted", "Speech on", "Exiting bit_sr"]);
+    }
+
+    #[test]
+    fn test_coordinator_web_virtual_buffer_navigation() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        let history = mock.clone();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+
+        // Linearized web buffer
+        let lines = vec![
+            bit_sr_web::BufferLine::new(
+                0,
+                vec![bit_sr_web::TextRun::new_heading(bit_sr_core::node::NodeId(1), "Welcome to the Web", 1)],
+            ),
+            bit_sr_web::BufferLine::new(
+                1,
+                vec![bit_sr_web::TextRun::new_text(bit_sr_core::node::NodeId(2), "Article content paragraph.")],
+            ),
+            bit_sr_web::BufferLine::new(
+                2,
+                vec![bit_sr_web::TextRun::new_button(bit_sr_core::node::NodeId(3), "Submit Form")],
+            ),
+        ];
+        let buffer = bit_sr_web::VirtualBuffer::with_lines(bit_sr_core::node::NodeId(100), lines);
+        coordinator.set_web_buffer(buffer);
+
+        // Down Arrow: reads next line in virtual buffer
+        let key_down = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::DownArrow,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action1 = coordinator.handle_event(AccessibilityEvent::Input(key_down));
+        assert_eq!(action1, EngineAction::Spoke("Article content paragraph.".to_string()));
+
+        // Single-letter quick nav: B jumps to button
+        let key_b = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::B,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action2 = coordinator.handle_event(AccessibilityEvent::Input(key_b));
+        assert_eq!(action2, EngineAction::Spoke("Submit Form, button".to_string()));
+
+        // Toggle Browse Mode command (SR + Space) -> switches to Focus Mode
+        let action_toggle = coordinator.toggle_browse_mode();
+        assert_eq!(action_toggle, EngineAction::Spoke("Focus mode".to_string()));
+
+        // Escape key in Focus Mode -> switches back to Browse Mode
+        let key_esc = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Escape,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_esc = coordinator.handle_event(AccessibilityEvent::Input(key_esc));
+        assert_eq!(action_esc, EngineAction::Spoke("Browse mode".to_string()));
+
+        assert_eq!(
+            history.get_spoken_history(),
+            vec![
+                "Article content paragraph.",
+                "Submit Form, button",
+                "Focus mode",
+                "Browse mode"
+            ]
+        );
     }
 }
 

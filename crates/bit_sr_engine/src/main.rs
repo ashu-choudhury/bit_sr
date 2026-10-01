@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     • SR + Tab                  : Repeat current focus
     • SR + T                    : Speak active window title
     • SR + S                    : Toggle speech mode (Talk / Mute)
+    • SR + Space                : Toggle Browse Mode / Focus Mode in Web & Edge
     • SR + Ctrl + Up/Down       : Adjust volume
     • SR + Ctrl + Left/Right    : Adjust speech rate
     • Ctrl + Alt + Q or SR + Q  : Exit cleanly
@@ -112,6 +113,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     if let Some(tp) = platform.text_provider() {
         coordinator.set_text_provider(tp);
+    }
+
+    #[cfg(windows)]
+    if let Some(tp) = platform.tree_provider() {
+        coordinator.set_tree_provider(tp);
     }
 
     #[cfg(windows)]

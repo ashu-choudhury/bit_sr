@@ -25,6 +25,7 @@ pub enum ScreenReaderCommand {
     RateSlower,
     ToggleInputHelp,
     OpenMenu,
+    ToggleBrowseMode,
     Quit,
 }
 
@@ -41,11 +42,12 @@ impl ScreenReaderCommand {
             Self::RateSlower => "speech.rate_slower",
             Self::ToggleInputHelp => "help.toggle_input_help",
             Self::OpenMenu => "core.open_menu",
+            Self::ToggleBrowseMode => "web.toggle_browse_mode",
             Self::Quit => "app.quit",
         }
     }
 
-    /// Functional category (e.g. "System", "Speech", "Help").
+    /// Functional category (e.g. "System", "Speech", "Help", "Web").
     pub fn category(&self) -> &'static str {
         match self {
             Self::AnnounceTitle | Self::RepeatFocus | Self::OpenMenu | Self::Quit => "System",
@@ -55,6 +57,7 @@ impl ScreenReaderCommand {
             | Self::RateFaster
             | Self::RateSlower => "Speech",
             Self::ToggleInputHelp => "Help",
+            Self::ToggleBrowseMode => "Web",
         }
     }
 
@@ -70,6 +73,7 @@ impl ScreenReaderCommand {
             Self::RateSlower => "cmd.rate_slower",
             Self::ToggleInputHelp => "cmd.toggle_input_help",
             Self::OpenMenu => "cmd.open_menu",
+            Self::ToggleBrowseMode => "cmd.toggle_browse_mode",
             Self::Quit => "cmd.quit",
         }
     }
@@ -91,6 +95,7 @@ impl ScreenReaderCommand {
             Self::RateSlower => "Decrease Speech Rate",
             Self::ToggleInputHelp => "Toggle Input Help Mode",
             Self::OpenMenu => "Open bit_sr Menu",
+            Self::ToggleBrowseMode => "Toggle Browse / Focus Mode",
             Self::Quit => "Exit bit_sr",
         }
     }
@@ -111,6 +116,9 @@ impl ScreenReaderCommand {
                 Some(Self::ToggleInputHelp)
             }
             "core.open_menu" | "openmenu" | "menu" => Some(Self::OpenMenu),
+            "web.toggle_browse_mode" | "togglebrowsemode" | "browsemode" => {
+                Some(Self::ToggleBrowseMode)
+            }
             "app.quit" | "quit" | "exit" => Some(Self::Quit),
             _ => None,
         }
@@ -193,6 +201,12 @@ impl GestureMap {
         self.bind(
             InputGesture::new(KeyModifiers::SR, Key::M),
             ScreenReaderCommand::OpenMenu,
+        );
+
+        // SR + Space -> Toggle Browse / Focus Mode
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::Space),
+            ScreenReaderCommand::ToggleBrowseMode,
         );
 
         // Ctrl + Alt + Q and SR + Q -> Quit
