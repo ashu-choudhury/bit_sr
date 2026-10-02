@@ -36,6 +36,38 @@ impl FirefoxFilter {
         )
     }
 
+    /// Checks if a Win32 window handle belongs to a Gecko window class or Gecko process.
+    pub fn is_gecko_hwnd(hwnd: windows::Win32::Foundation::HWND) -> bool {
+        if hwnd.0.is_null() {
+            return false;
+        }
+
+        let mut class_buf = [0u16; 256];
+        let len = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut class_buf)
+        };
+        if len > 0 {
+            let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
+            if Self::is_gecko_window(&class_name) {
+                return true;
+            }
+        }
+
+        let mut pid: u32 = 0;
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        }
+        if pid != 0 {
+            if let Some(proc_name) = crate::apps::get_process_name_by_pid(pid) {
+                if Self::is_gecko_process(&proc_name) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// Checks if an executable process name is a known Gecko application.
     pub fn is_gecko_process(proc_name: &str) -> bool {
         let name = proc_name.to_ascii_lowercase();

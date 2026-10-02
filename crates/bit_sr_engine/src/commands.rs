@@ -27,6 +27,21 @@ pub enum ScreenReaderCommand {
     OpenMenu,
     ToggleBrowseMode,
     Quit,
+
+    // Review Cursor Commands (Desktop Numpad & Laptop)
+    ReviewPreviousLine,
+    ReviewCurrentLine,
+    ReviewNextLine,
+    ReviewPreviousWord,
+    ReviewCurrentWord,
+    ReviewNextWord,
+    ReviewPreviousCharacter,
+    ReviewCurrentCharacter,
+    ReviewNextCharacter,
+    ReviewTop,
+    ReviewBottom,
+    ReviewStartOfLine,
+    ReviewEndOfLine,
 }
 
 impl ScreenReaderCommand {
@@ -44,10 +59,23 @@ impl ScreenReaderCommand {
             Self::OpenMenu => "core.open_menu",
             Self::ToggleBrowseMode => "web.toggle_browse_mode",
             Self::Quit => "app.quit",
+            Self::ReviewPreviousLine => "review.prev_line",
+            Self::ReviewCurrentLine => "review.curr_line",
+            Self::ReviewNextLine => "review.next_line",
+            Self::ReviewPreviousWord => "review.prev_word",
+            Self::ReviewCurrentWord => "review.curr_word",
+            Self::ReviewNextWord => "review.next_word",
+            Self::ReviewPreviousCharacter => "review.prev_char",
+            Self::ReviewCurrentCharacter => "review.curr_char",
+            Self::ReviewNextCharacter => "review.next_char",
+            Self::ReviewTop => "review.top",
+            Self::ReviewBottom => "review.bottom",
+            Self::ReviewStartOfLine => "review.start_line",
+            Self::ReviewEndOfLine => "review.end_line",
         }
     }
 
-    /// Functional category (e.g. "System", "Speech", "Help", "Web").
+    /// Functional category (e.g. "System", "Speech", "Help", "Web", "Review").
     pub fn category(&self) -> &'static str {
         match self {
             Self::AnnounceTitle | Self::RepeatFocus | Self::OpenMenu | Self::Quit => "System",
@@ -58,6 +86,19 @@ impl ScreenReaderCommand {
             | Self::RateSlower => "Speech",
             Self::ToggleInputHelp => "Help",
             Self::ToggleBrowseMode => "Web",
+            Self::ReviewPreviousLine
+            | Self::ReviewCurrentLine
+            | Self::ReviewNextLine
+            | Self::ReviewPreviousWord
+            | Self::ReviewCurrentWord
+            | Self::ReviewNextWord
+            | Self::ReviewPreviousCharacter
+            | Self::ReviewCurrentCharacter
+            | Self::ReviewNextCharacter
+            | Self::ReviewTop
+            | Self::ReviewBottom
+            | Self::ReviewStartOfLine
+            | Self::ReviewEndOfLine => "Review",
         }
     }
 
@@ -75,6 +116,19 @@ impl ScreenReaderCommand {
             Self::OpenMenu => "cmd.open_menu",
             Self::ToggleBrowseMode => "cmd.toggle_browse_mode",
             Self::Quit => "cmd.quit",
+            Self::ReviewPreviousLine => "cmd.review_prev_line",
+            Self::ReviewCurrentLine => "cmd.review_curr_line",
+            Self::ReviewNextLine => "cmd.review_next_line",
+            Self::ReviewPreviousWord => "cmd.review_prev_word",
+            Self::ReviewCurrentWord => "cmd.review_curr_word",
+            Self::ReviewNextWord => "cmd.review_next_word",
+            Self::ReviewPreviousCharacter => "cmd.review_prev_char",
+            Self::ReviewCurrentCharacter => "cmd.review_curr_char",
+            Self::ReviewNextCharacter => "cmd.review_next_char",
+            Self::ReviewTop => "cmd.review_top",
+            Self::ReviewBottom => "cmd.review_bottom",
+            Self::ReviewStartOfLine => "cmd.review_start_line",
+            Self::ReviewEndOfLine => "cmd.review_end_line",
         }
     }
 
@@ -97,6 +151,19 @@ impl ScreenReaderCommand {
             Self::OpenMenu => "Open bit_sr Menu",
             Self::ToggleBrowseMode => "Toggle Browse / Focus Mode",
             Self::Quit => "Exit bit_sr",
+            Self::ReviewPreviousLine => "Review Previous Line",
+            Self::ReviewCurrentLine => "Review Current Line",
+            Self::ReviewNextLine => "Review Next Line",
+            Self::ReviewPreviousWord => "Review Previous Word",
+            Self::ReviewCurrentWord => "Review Current Word",
+            Self::ReviewNextWord => "Review Next Word",
+            Self::ReviewPreviousCharacter => "Review Previous Character",
+            Self::ReviewCurrentCharacter => "Review Current Character",
+            Self::ReviewNextCharacter => "Review Next Character",
+            Self::ReviewTop => "Review Top Line",
+            Self::ReviewBottom => "Review Bottom Line",
+            Self::ReviewStartOfLine => "Review Start of Line",
+            Self::ReviewEndOfLine => "Review End of Line",
         }
     }
 
@@ -120,6 +187,19 @@ impl ScreenReaderCommand {
                 Some(Self::ToggleBrowseMode)
             }
             "app.quit" | "quit" | "exit" => Some(Self::Quit),
+            "review.prev_line" | "review_prev_line" => Some(Self::ReviewPreviousLine),
+            "review.curr_line" | "review_curr_line" => Some(Self::ReviewCurrentLine),
+            "review.next_line" | "review_next_line" => Some(Self::ReviewNextLine),
+            "review.prev_word" | "review_prev_word" => Some(Self::ReviewPreviousWord),
+            "review.curr_word" | "review_curr_word" => Some(Self::ReviewCurrentWord),
+            "review.next_word" | "review_next_word" => Some(Self::ReviewNextWord),
+            "review.prev_char" | "review_prev_char" => Some(Self::ReviewPreviousCharacter),
+            "review.curr_char" | "review_curr_char" => Some(Self::ReviewCurrentCharacter),
+            "review.next_char" | "review_next_char" => Some(Self::ReviewNextCharacter),
+            "review.top" | "review_top" => Some(Self::ReviewTop),
+            "review.bottom" | "review_bottom" => Some(Self::ReviewBottom),
+            "review.start_line" | "review_start_line" => Some(Self::ReviewStartOfLine),
+            "review.end_line" | "review_end_line" => Some(Self::ReviewEndOfLine),
             _ => None,
         }
     }
@@ -217,6 +297,118 @@ impl GestureMap {
         self.bind(
             InputGesture::new(KeyModifiers::SR, Key::Q),
             ScreenReaderCommand::Quit,
+        );
+
+        // ====================================================================
+        // Text Review Cursor Commands (Desktop Numpad Layout - NumLock OFF)
+        // ====================================================================
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad7),
+            ScreenReaderCommand::ReviewPreviousLine,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad8),
+            ScreenReaderCommand::ReviewCurrentLine,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad9),
+            ScreenReaderCommand::ReviewNextLine,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad4),
+            ScreenReaderCommand::ReviewPreviousWord,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad5),
+            ScreenReaderCommand::ReviewCurrentWord,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad6),
+            ScreenReaderCommand::ReviewNextWord,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad1),
+            ScreenReaderCommand::ReviewPreviousCharacter,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad2),
+            ScreenReaderCommand::ReviewCurrentCharacter,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::empty(), Key::Numpad3),
+            ScreenReaderCommand::ReviewNextCharacter,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SHIFT, Key::Numpad7),
+            ScreenReaderCommand::ReviewTop,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SHIFT, Key::Numpad9),
+            ScreenReaderCommand::ReviewBottom,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SHIFT, Key::Numpad1),
+            ScreenReaderCommand::ReviewStartOfLine,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SHIFT, Key::Numpad3),
+            ScreenReaderCommand::ReviewEndOfLine,
+        );
+
+        // ====================================================================
+        // Text Review Cursor Commands (Laptop Layout - SR modifier)
+        // ====================================================================
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::UpArrow),
+            ScreenReaderCommand::ReviewPreviousLine,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR | KeyModifiers::SHIFT, Key::Period),
+            ScreenReaderCommand::ReviewCurrentLine,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::DownArrow),
+            ScreenReaderCommand::ReviewNextLine,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR | KeyModifiers::CONTROL, Key::LeftArrow),
+            ScreenReaderCommand::ReviewPreviousWord,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR | KeyModifiers::CONTROL, Key::Period),
+            ScreenReaderCommand::ReviewCurrentWord,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR | KeyModifiers::CONTROL, Key::RightArrow),
+            ScreenReaderCommand::ReviewNextWord,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::LeftArrow),
+            ScreenReaderCommand::ReviewPreviousCharacter,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::Period),
+            ScreenReaderCommand::ReviewCurrentCharacter,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::RightArrow),
+            ScreenReaderCommand::ReviewNextCharacter,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR | KeyModifiers::CONTROL, Key::Home),
+            ScreenReaderCommand::ReviewTop,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR | KeyModifiers::CONTROL, Key::End),
+            ScreenReaderCommand::ReviewBottom,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::Home),
+            ScreenReaderCommand::ReviewStartOfLine,
+        );
+        self.bind(
+            InputGesture::new(KeyModifiers::SR, Key::End),
+            ScreenReaderCommand::ReviewEndOfLine,
         );
     }
 

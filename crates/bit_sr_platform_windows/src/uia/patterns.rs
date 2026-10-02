@@ -154,4 +154,80 @@ impl<'a> Patterns<'a> {
             Ok(None)
         }
     }
+
+    /// Reads full document or console visible text using IUIAutomationTextPattern.
+    /// In modern Windows consoles (conhost) and Windows Terminal, GetVisibleRanges()
+    /// provides the active viewport, and DocumentRange() provides the entire buffer.
+    pub fn get_document_text(&self) -> Result<Option<String>> {
+        unsafe {
+            if let Ok(pattern) = self.element.GetCurrentPattern(UIA_TextPatternId) {
+                if let Ok(text_pat) = pattern.cast::<IUIAutomationTextPattern>() {
+                    // 1. Try GetVisibleRanges first (ideal for terminal windows where buffer has thousands of blanks)
+                    if let Ok(visible_ranges) = text_pat.GetVisibleRanges() {
+                        if visible_ranges.Length()? > 0 {
+                            let mut full = String::new();
+                            for i in 0..visible_ranges.Length()? {
+                                if let Ok(range) = visible_ranges.GetElement(i) {
+                                    if let Ok(bstr) = range.GetText(-1) {
+                                        full.push_str(&bstr.to_string());
+                                    }
+                                }
+                            }
+                            if !full.trim().is_empty() {
+                                return Ok(Some(full));
+                            }
+                        }
+                    }
+                    // 2. Fall back to DocumentRange
+                    if let Ok(doc_range) = text_pat.DocumentRange() {
+                        if let Ok(bstr) = doc_range.GetText(-1) {
+                            let text = bstr.to_string();
+                            if !text.trim().is_empty() {
+                                return Ok(Some(text));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Fallback to ValuePattern for simple edit controls
+            if let Ok(pattern) = self.element.GetCurrentPattern(UIA_ValuePatternId) {
+                if let Ok(val_pat) = pattern.cast::<IUIAutomationValuePattern>() {
+                    if let Ok(bstr) = val_pat.CurrentValue() {
+                        let text = bstr.to_string();
+                        if !text.is_empty() {
+                            return Ok(Some(text));
+                        }
+                    }
+                }
+            }
+
+            Ok(None)
+        }
+    }
+
+    /// Reads caret insertion point character offset within the document using IUIAutomationTextPattern.
+    pub fn get_caret_offset(&self) -> Result<Option<usize>> {
+        unsafe {
+            if let Ok(pattern) = self.element.GetCurrentPattern(UIA_TextPatternId) {
+                if let Ok(text_pat) = pattern.cast::<IUIAutomationTextPattern>() {
+                    let selection = text_pat.GetSelection()?;
+                    if selection.Length()? > 0 {
+                        let caret_range = selection.GetElement(0)?;
+                        let doc_range = text_pat.DocumentRange()?;
+                        let target = doc_range.Clone()?;
+                        let _ = target.MoveEndpointByRange(
+                            TextPatternRangeEndpoint_End,
+                            &caret_range,
+                            TextPatternRangeEndpoint_Start,
+                        );
+                        if let Ok(bstr) = target.GetText(-1) {
+                            return Ok(Some(bstr.to_string().chars().count()));
+                        }
+                    }
+                }
+            }
+            Ok(None)
+        }
+    }
 }

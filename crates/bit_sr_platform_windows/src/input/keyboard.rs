@@ -123,16 +123,77 @@ pub fn vk_to_key(vk_code: u32, is_extended: bool) -> Key {
         c if c == VK_TAB.0 as u32 => Key::Tab,
         c if c == VK_SPACE.0 as u32 => Key::Space,
         c if c == VK_BACK.0 as u32 => Key::Backspace,
-        c if c == VK_DELETE.0 as u32 => Key::Delete,
-        c if c == VK_INSERT.0 as u32 => Key::Insert,
-        c if c == VK_HOME.0 as u32 => Key::Home,
-        c if c == VK_END.0 as u32 => Key::End,
-        c if c == VK_PRIOR.0 as u32 => Key::PageUp,
-        c if c == VK_NEXT.0 as u32 => Key::PageDown,
-        c if c == VK_LEFT.0 as u32 => Key::LeftArrow,
-        c if c == VK_RIGHT.0 as u32 => Key::RightArrow,
-        c if c == VK_UP.0 as u32 => Key::UpArrow,
-        c if c == VK_DOWN.0 as u32 => Key::DownArrow,
+        c if c == VK_DELETE.0 as u32 => {
+            if is_extended {
+                Key::Delete
+            } else {
+                Key::NumpadDecimal
+            }
+        }
+        c if c == VK_INSERT.0 as u32 => {
+            if is_extended {
+                Key::Insert
+            } else {
+                Key::Numpad0
+            }
+        }
+        c if c == VK_HOME.0 as u32 => {
+            if is_extended {
+                Key::Home
+            } else {
+                Key::Numpad7
+            }
+        }
+        c if c == VK_END.0 as u32 => {
+            if is_extended {
+                Key::End
+            } else {
+                Key::Numpad1
+            }
+        }
+        c if c == VK_PRIOR.0 as u32 => {
+            if is_extended {
+                Key::PageUp
+            } else {
+                Key::Numpad9
+            }
+        }
+        c if c == VK_NEXT.0 as u32 => {
+            if is_extended {
+                Key::PageDown
+            } else {
+                Key::Numpad3
+            }
+        }
+        c if c == VK_LEFT.0 as u32 => {
+            if is_extended {
+                Key::LeftArrow
+            } else {
+                Key::Numpad4
+            }
+        }
+        c if c == VK_RIGHT.0 as u32 => {
+            if is_extended {
+                Key::RightArrow
+            } else {
+                Key::Numpad6
+            }
+        }
+        c if c == VK_UP.0 as u32 => {
+            if is_extended {
+                Key::UpArrow
+            } else {
+                Key::Numpad8
+            }
+        }
+        c if c == VK_DOWN.0 as u32 => {
+            if is_extended {
+                Key::DownArrow
+            } else {
+                Key::Numpad2
+            }
+        }
+        0x0C => Key::Numpad5, // VK_CLEAR (Numpad 5 when NumLock is off)
 
         // Locks & System
         c if c == VK_CAPITAL.0 as u32 => Key::CapsLock,
@@ -155,11 +216,11 @@ pub fn vk_to_key(vk_code: u32, is_extended: bool) -> Key {
         c if c == VK_RWIN.0 as u32 => Key::RightSuper,
         c if c == VK_APPS.0 as u32 => Key::Menu,
 
-        // Numpad Keys (0x60 ..= 0x69)
-        0x60 => Key::Numpad0, 0x61 => Key::Numpad1, 0x62 => Key::Numpad2,
-        0x63 => Key::Numpad3, 0x64 => Key::Numpad4, 0x65 => Key::Numpad5,
-        0x66 => Key::Numpad6, 0x67 => Key::Numpad7, 0x68 => Key::Numpad8,
-        0x69 => Key::Numpad9,
+        // Numpad Keys when NumLock is ON (0x60 ..= 0x69)
+        0x60 => Key::NumLockNumpad0, 0x61 => Key::NumLockNumpad1, 0x62 => Key::NumLockNumpad2,
+        0x63 => Key::NumLockNumpad3, 0x64 => Key::NumLockNumpad4, 0x65 => Key::NumLockNumpad5,
+        0x66 => Key::NumLockNumpad6, 0x67 => Key::NumLockNumpad7, 0x68 => Key::NumLockNumpad8,
+        0x69 => Key::NumLockNumpad9,
         c if c == VK_MULTIPLY.0 as u32 => Key::NumpadMultiply,
         c if c == VK_ADD.0 as u32 => Key::NumpadAdd,
         c if c == VK_SUBTRACT.0 as u32 => Key::NumpadSubtract,
@@ -467,14 +528,40 @@ unsafe extern "system" fn low_level_keyboard_proc(
             };
             let _ = state.raw_tx.try_send(raw_event);
 
-            // Intercept SR modifier from reaching the underlying window
-            if sr_action == SRKeyAction::InterceptModifier {
+            // Intercept SR modifier or any key pressed while SR is held
+            if sr_action == SRKeyAction::InterceptModifier || modifiers.contains(KeyModifiers::SR) {
                 return true;
             }
 
             // Intercept all keys in input help mode
             if INPUT_HELP_ACTIVE.load(Ordering::Relaxed) {
                 return true;
+            }
+
+            // Intercept physical numpad review keys when NumLock is OFF
+            let is_num_lock = (unsafe { GetKeyState(VK_NUMLOCK.0 as i32) } as u16 & 0x0001) != 0;
+            if !is_num_lock
+                && matches!(
+                    key,
+                    Key::Numpad0
+                        | Key::Numpad1
+                        | Key::Numpad2
+                        | Key::Numpad3
+                        | Key::Numpad4
+                        | Key::Numpad5
+                        | Key::Numpad6
+                        | Key::Numpad7
+                        | Key::Numpad8
+                        | Key::Numpad9
+                        | Key::NumpadDecimal
+                )
+            {
+                return true;
+            }
+
+            // Detect NumLock hardware state toggle
+            if kbd.vkCode == VK_NUMLOCK.0 as u32 && action == KeyAction::Up {
+                let _ = state.tx.try_send(AccessibilityEvent::NumLockToggled(is_num_lock));
             }
 
             false
@@ -610,8 +697,22 @@ mod tests {
         assert_eq!(vk_to_key(0x51, false), Key::Q);
         assert_eq!(vk_to_key(0x1B, false), Key::Escape);
         assert_eq!(vk_to_key(0x14, false), Key::CapsLock);
-        assert_eq!(vk_to_key(0x2D, false), Key::Insert);
-        assert_eq!(vk_to_key(0x25, false), Key::LeftArrow);
+        assert_eq!(vk_to_key(0x2D, true), Key::Insert);
+        assert_eq!(vk_to_key(0x2D, false), Key::Numpad0);
+        assert_eq!(vk_to_key(0x25, true), Key::LeftArrow);
+        assert_eq!(vk_to_key(0x25, false), Key::Numpad4);
+        assert_eq!(vk_to_key(0x26, true), Key::UpArrow);
+        assert_eq!(vk_to_key(0x26, false), Key::Numpad8);
+        assert_eq!(vk_to_key(0x27, true), Key::RightArrow);
+        assert_eq!(vk_to_key(0x27, false), Key::Numpad6);
+        assert_eq!(vk_to_key(0x28, true), Key::DownArrow);
+        assert_eq!(vk_to_key(0x28, false), Key::Numpad2);
+        assert_eq!(vk_to_key(0x24, false), Key::Numpad7);
+        assert_eq!(vk_to_key(0x21, false), Key::Numpad9);
+        assert_eq!(vk_to_key(0x23, false), Key::Numpad1);
+        assert_eq!(vk_to_key(0x22, false), Key::Numpad3);
+        assert_eq!(vk_to_key(0x0C, false), Key::Numpad5);
+        assert_eq!(vk_to_key(0x67, false), Key::NumLockNumpad7);
         assert_eq!(vk_to_key(0x70, false), Key::F1);
         assert_eq!(vk_to_key(0x7B, false), Key::F12);
         assert_eq!(vk_to_key(0x0D, false), Key::Enter);

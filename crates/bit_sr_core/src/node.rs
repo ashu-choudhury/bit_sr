@@ -178,6 +178,9 @@ pub struct AccessibleNode {
 
     /// Fast bitflags of supported capabilities.
     pub action_capabilities: ActionCapabilities,
+
+    /// Indicates whether this node belongs to an embedded web view or web document (Chromium, Gecko, WebView2).
+    pub is_web_content: bool,
 }
 
 impl AccessibleNode {
@@ -263,5 +266,10 @@ impl AccessibleNode {
 
     pub fn has_children(&self) -> bool {
         !self.children.is_empty()
+    }
+
+    /// Checks whether this node is a web document or WebView root.
+    pub fn is_web_document(&self) -> bool {
+        self.is_web_content && matches!(self.role, Role::Document | Role::Frame)
     }
 }

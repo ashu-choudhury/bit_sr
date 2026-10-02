@@ -27,6 +27,8 @@ pub struct EngineCoordinator {
     pub event_tx: Option<crossbeam_channel::Sender<AccessibilityEvent>>,
     pub web_controller: Option<bit_sr_web::WebController>,
     pub tree_provider: Option<std::sync::Arc<dyn bit_sr_core::tree::TreeProvider>>,
+    pub review_cursor: bit_sr_core::text::ReviewCursor,
+    pub last_review_cmd: Option<(ScreenReaderCommand, std::time::Instant, u32)>,
 }
 
 impl EngineCoordinator {
@@ -47,6 +49,8 @@ impl EngineCoordinator {
             event_tx: None,
             web_controller: None,
             tree_provider: None,
+            review_cursor: bit_sr_core::text::ReviewCursor::new(),
+            last_review_cmd: None,
         }
     }
 
@@ -66,6 +70,8 @@ impl EngineCoordinator {
             event_tx: None,
             web_controller: None,
             tree_provider: None,
+            review_cursor: bit_sr_core::text::ReviewCursor::new(),
+            last_review_cmd: None,
         }
     }
 
@@ -122,6 +128,16 @@ impl EngineCoordinator {
                     self.loc.t("system.capslock_on")
                 } else {
                     self.loc.t("system.capslock_off")
+                };
+                let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                EngineAction::Spoke(msg.to_string())
+            }
+
+            AccessibilityEvent::NumLockToggled(is_on) => {
+                let msg = if is_on {
+                    self.loc.t("system.numlock_on")
+                } else {
+                    self.loc.t("system.numlock_off")
                 };
                 let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                 EngineAction::Spoke(msg.to_string())
@@ -513,6 +529,31 @@ impl EngineCoordinator {
                     return EngineAction::None;
                 }
 
+                // Synchronize Review Cursor with the newly focused object/document
+                if let Some(ref tp) = self.text_provider {
+                    if let Some(doc) = tp.get_document_text() {
+                        let offset = tp.get_caret_offset();
+                        self.review_cursor.set_text(doc, offset);
+                    } else {
+                        let basic = focused_node
+                            .name
+                            .clone()
+                            .or_else(|| focused_node.value.clone())
+                            .or_else(|| focused_node.description.clone())
+                            .unwrap_or_default();
+                        self.review_cursor.set_text(basic, None);
+                    }
+                } else {
+                    let basic = focused_node
+                        .name
+                        .clone()
+                        .or_else(|| focused_node.value.clone())
+                        .or_else(|| focused_node.description.clone())
+                        .unwrap_or_default();
+                    self.review_cursor.set_text(basic, None);
+                }
+                self.last_review_cmd = None;
+
                 let mut announcement = String::new();
 
                 if let FocusTransition::NewWindow { window_title } = transition {
@@ -529,34 +570,41 @@ impl EngineCoordinator {
                 );
                 announcement.push_str(&node_text);
 
-                // Ensure WebController is active if focus enters a web document
-                if self.web_controller.is_none() && focused_node.role == bit_sr_core::roles::Role::Document {
-                    let buffer = if let Some(ref tp) = self.tree_provider {
-                        if let Some(tree) = tp.harvest_tree(14, 1500) {
-                            bit_sr_web::Linearizer::compile(&tree, focused_node.id)
+                // Web Virtual Buffer & Browse/Focus Mode Handling:
+                // Strictly active only within WebView / web document content.
+                if !focused_node.is_web_content {
+                    // Normal GUI control: deactivate WebController so Browse Mode and key interception never occur.
+                    self.web_controller = None;
+                } else {
+                    // Focus is inside a WebView / web document
+                    if self.web_controller.is_none() && focused_node.is_web_document() {
+                        let buffer = if let Some(ref tp) = self.tree_provider {
+                            if let Some(tree) = tp.harvest_tree(14, 1500) {
+                                bit_sr_web::Linearizer::compile(&tree, focused_node.id)
+                            } else {
+                                let mut b = bit_sr_web::VirtualBuffer::new(focused_node.id);
+                                b.title = focused_node.name.clone();
+                                b
+                            }
                         } else {
                             let mut b = bit_sr_web::VirtualBuffer::new(focused_node.id);
                             b.title = focused_node.name.clone();
                             b
-                        }
-                    } else {
-                        let mut b = bit_sr_web::VirtualBuffer::new(focused_node.id);
-                        b.title = focused_node.name.clone();
-                        b
-                    };
-                    self.web_controller = Some(bit_sr_web::WebController::new(buffer));
-                }
+                        };
+                        self.web_controller = Some(bit_sr_web::WebController::new(buffer));
+                    }
 
-                // Update WebController automatic Browse/Focus mode state machine
-                if let Some(ref mut wc) = self.web_controller {
-                    let web_actions = wc.handle_focus_change(focused_node);
-                    for action in web_actions {
-                        if let bit_sr_web::WebAction::SwitchMode(mode) = action {
-                            let mode_msg = match mode {
-                                bit_sr_web::NavigationMode::Browse => self.loc.t("web.browse_mode"),
-                                bit_sr_web::NavigationMode::Focus => self.loc.t("web.focus_mode"),
-                            };
-                            let _ = self.speech_hub.speak(mode_msg, SpeechPriority::Now);
+                    // Update WebController automatic Browse/Focus mode state machine strictly within the WebView
+                    if let Some(ref mut wc) = self.web_controller {
+                        let web_actions = wc.handle_focus_change(focused_node);
+                        for action in web_actions {
+                            if let bit_sr_web::WebAction::SwitchMode(mode) = action {
+                                let mode_msg = match mode {
+                                    bit_sr_web::NavigationMode::Browse => self.loc.t("web.browse_mode"),
+                                    bit_sr_web::NavigationMode::Focus => self.loc.t("web.focus_mode"),
+                                };
+                                let _ = self.speech_hub.speak(mode_msg, SpeechPriority::Now);
+                            }
                         }
                     }
                 }
@@ -571,6 +619,9 @@ impl EngineCoordinator {
 
             AccessibilityEvent::WindowActivated(node) => {
                 self.last_selection = None;
+                if !node.is_web_content {
+                    self.web_controller = None;
+                }
                 let title = self.focus_tracker.on_window_activated(&node);
                 if let Some(t) = title {
                     let announcement = self.loc.t_args("format.window_suffix", &[("title", &t)]);
@@ -811,6 +862,7 @@ impl EngineCoordinator {
             }
 
             ScreenReaderCommand::ToggleBrowseMode => {
+                // Strictly toggle browse/focus mode when inside an active WebView
                 if let Some(ref mut wc) = self.web_controller {
                     if wc.buffer.line_count() == 0 {
                         if let Some(ref tp) = self.tree_provider {
@@ -827,36 +879,331 @@ impl EngineCoordinator {
                             return EngineAction::Spoke(msg.clone());
                         }
                     }
-                } else {
-                    let root_id = self
-                        .focus_tracker
-                        .current_focus()
-                        .map(|n| n.id)
-                        .unwrap_or(bit_sr_core::node::NodeId(0));
-                    let buffer = if let Some(ref tp) = self.tree_provider {
-                        if let Some(tree) = tp.harvest_tree(14, 1500) {
-                            bit_sr_web::Linearizer::compile(&tree, root_id)
-                        } else {
-                            bit_sr_web::VirtualBuffer::new(root_id)
-                        }
-                    } else {
-                        bit_sr_web::VirtualBuffer::new(root_id)
-                    };
-                    let mut wc = bit_sr_web::WebController::new(buffer);
-                    let actions = wc.toggle_mode();
-                    self.web_controller = Some(wc);
-                    for action in actions {
-                        if let bit_sr_web::WebAction::Speak(ref msg) = action {
-                            let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
-                            return EngineAction::Spoke(msg.clone());
-                        }
-                    }
-                    let msg = self.loc.t("web.browse_mode");
-                    let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
-                    return EngineAction::Spoke(msg.to_string());
                 }
                 EngineAction::None
             }
+
+            ScreenReaderCommand::ReviewPreviousLine
+            | ScreenReaderCommand::ReviewCurrentLine
+            | ScreenReaderCommand::ReviewNextLine
+            | ScreenReaderCommand::ReviewPreviousWord
+            | ScreenReaderCommand::ReviewCurrentWord
+            | ScreenReaderCommand::ReviewNextWord
+            | ScreenReaderCommand::ReviewPreviousCharacter
+            | ScreenReaderCommand::ReviewCurrentCharacter
+            | ScreenReaderCommand::ReviewNextCharacter
+            | ScreenReaderCommand::ReviewTop
+            | ScreenReaderCommand::ReviewBottom
+            | ScreenReaderCommand::ReviewStartOfLine
+            | ScreenReaderCommand::ReviewEndOfLine => self.execute_review_command(cmd),
+        }
+    }
+
+    /// Executes review cursor navigation commands with multi-tap repeat support.
+    fn execute_review_command(&mut self, cmd: ScreenReaderCommand) -> EngineAction {
+        let now = std::time::Instant::now();
+        let repeat_count = match self.last_review_cmd {
+            Some((last_cmd, last_time, count))
+                if last_cmd == cmd && now.duration_since(last_time).as_millis() <= 500 =>
+            {
+                count + 1
+            }
+            _ => 0,
+        };
+        self.last_review_cmd = Some((cmd, now, repeat_count));
+
+        // Refresh buffer: if empty, initialize with caret offset; otherwise update text dynamically
+        // (especially vital for terminals/consoles and live text editors where output/text changes while focused)
+        if let Some(ref tp) = self.text_provider {
+            if let Some(doc) = tp.get_document_text() {
+                if self.review_cursor.line_count() == 0 {
+                    let offset = tp.get_caret_offset();
+                    self.review_cursor.set_text(doc, offset);
+                } else {
+                    self.review_cursor.update_text(doc);
+                }
+            }
+        }
+        if self.review_cursor.line_count() == 0 || self.review_cursor.current_line().is_empty() {
+            if let Some(focused) = self.focus_tracker.current_focus() {
+                let basic = focused
+                    .name
+                    .clone()
+                    .or_else(|| focused.value.clone())
+                    .or_else(|| focused.description.clone())
+                    .unwrap_or_default();
+                self.review_cursor.set_text(basic, None);
+            }
+        }
+
+        match cmd {
+            ScreenReaderCommand::ReviewPreviousLine => {
+                match self.review_cursor.previous_line() {
+                    Ok(line) => {
+                        let announcement = if line.trim().is_empty() {
+                            self.loc.t("format.blank").to_string()
+                        } else {
+                            line.to_string()
+                        };
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    }
+                    Err(bit_sr_core::text::ReviewBoundary::Top) => {
+                        let msg = self.loc.t("format.top");
+                        let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                        EngineAction::Spoke(msg.to_string())
+                    }
+                    _ => EngineAction::None,
+                }
+            }
+
+            ScreenReaderCommand::ReviewCurrentLine => {
+                let line = self.review_cursor.current_line();
+                if repeat_count == 0 {
+                    let announcement = if line.trim().is_empty() {
+                        self.loc.t("format.blank").to_string()
+                    } else {
+                        line.to_string()
+                    };
+                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                    EngineAction::Spoke(announcement)
+                } else if repeat_count == 1 {
+                    let mut spelled = String::new();
+                    for ch in line.chars() {
+                        if !spelled.is_empty() {
+                            spelled.push(' ');
+                        }
+                        if ch == ' ' {
+                            spelled.push_str(self.loc.t("key.space"));
+                        } else {
+                            spelled.push(ch);
+                        }
+                    }
+                    let announcement = if spelled.is_empty() {
+                        self.loc.t("format.blank").to_string()
+                    } else {
+                        spelled
+                    };
+                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                    EngineAction::Spoke(announcement)
+                } else {
+                    let mut phonetics = String::new();
+                    for ch in line.chars() {
+                        if !phonetics.is_empty() {
+                            phonetics.push_str(", ");
+                        }
+                        phonetics.push_str(bit_sr_core::text::nato_phonetic(ch));
+                    }
+                    let announcement = if phonetics.is_empty() {
+                        self.loc.t("format.blank").to_string()
+                    } else {
+                        phonetics
+                    };
+                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                    EngineAction::Spoke(announcement)
+                }
+            }
+
+            ScreenReaderCommand::ReviewNextLine => {
+                match self.review_cursor.next_line() {
+                    Ok(line) => {
+                        let announcement = if line.trim().is_empty() {
+                            self.loc.t("format.blank").to_string()
+                        } else {
+                            line.to_string()
+                        };
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    }
+                    Err(bit_sr_core::text::ReviewBoundary::Bottom) => {
+                        let msg = self.loc.t("format.bottom");
+                        let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                        EngineAction::Spoke(msg.to_string())
+                    }
+                    _ => EngineAction::None,
+                }
+            }
+
+            ScreenReaderCommand::ReviewPreviousWord => {
+                match self.review_cursor.previous_word() {
+                    Ok(word) => {
+                        let announcement = if word.trim().is_empty() {
+                            self.loc.t("format.blank").to_string()
+                        } else {
+                            word
+                        };
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    }
+                    Err(bit_sr_core::text::ReviewBoundary::Top) => {
+                        let msg = self.loc.t("format.top");
+                        let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                        EngineAction::Spoke(msg.to_string())
+                    }
+                    _ => EngineAction::None,
+                }
+            }
+
+            ScreenReaderCommand::ReviewCurrentWord => {
+                let word = self.review_cursor.current_word();
+                if repeat_count == 0 {
+                    let announcement = if word.trim().is_empty() {
+                        self.loc.t("format.blank").to_string()
+                    } else {
+                        word.to_string()
+                    };
+                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                    EngineAction::Spoke(announcement)
+                } else {
+                    let mut spelled = String::new();
+                    for ch in word.chars() {
+                        if !spelled.is_empty() {
+                            spelled.push(' ');
+                        }
+                        spelled.push(ch);
+                    }
+                    let announcement = if spelled.is_empty() {
+                        self.loc.t("format.blank").to_string()
+                    } else {
+                        spelled
+                    };
+                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                    EngineAction::Spoke(announcement)
+                }
+            }
+
+            ScreenReaderCommand::ReviewNextWord => {
+                match self.review_cursor.next_word() {
+                    Ok(word) => {
+                        let announcement = if word.trim().is_empty() {
+                            self.loc.t("format.blank").to_string()
+                        } else {
+                            word
+                        };
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    }
+                    Err(bit_sr_core::text::ReviewBoundary::Bottom) => {
+                        let msg = self.loc.t("format.bottom");
+                        let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                        EngineAction::Spoke(msg.to_string())
+                    }
+                    _ => EngineAction::None,
+                }
+            }
+
+            ScreenReaderCommand::ReviewPreviousCharacter => {
+                match self.review_cursor.previous_character() {
+                    Ok(ch) => {
+                        let announcement = Self::format_character(ch, &self.loc);
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    }
+                    Err(bit_sr_core::text::ReviewBoundary::Left) => {
+                        let msg = self.loc.t("format.left");
+                        let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                        EngineAction::Spoke(msg.to_string())
+                    }
+                    _ => EngineAction::None,
+                }
+            }
+
+            ScreenReaderCommand::ReviewCurrentCharacter => {
+                if let Some(ch) = self.review_cursor.current_character() {
+                    if repeat_count == 0 {
+                        let announcement = Self::format_character(ch, &self.loc);
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    } else if repeat_count == 1 {
+                        let announcement = bit_sr_core::text::nato_phonetic(ch).to_string();
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    } else {
+                        let announcement = bit_sr_core::text::char_ordinal_description(ch);
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    }
+                } else {
+                    let msg = self.loc.t("format.blank");
+                    let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                    EngineAction::Spoke(msg.to_string())
+                }
+            }
+
+            ScreenReaderCommand::ReviewNextCharacter => {
+                match self.review_cursor.next_character() {
+                    Ok(ch) => {
+                        let announcement = Self::format_character(ch, &self.loc);
+                        let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                        EngineAction::Spoke(announcement)
+                    }
+                    Err(bit_sr_core::text::ReviewBoundary::Right) => {
+                        let msg = self.loc.t("format.right");
+                        let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                        EngineAction::Spoke(msg.to_string())
+                    }
+                    _ => EngineAction::None,
+                }
+            }
+
+            ScreenReaderCommand::ReviewTop => {
+                let line = self.review_cursor.top();
+                let announcement = if line.trim().is_empty() {
+                    self.loc.t("format.blank").to_string()
+                } else {
+                    line.to_string()
+                };
+                let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                EngineAction::Spoke(announcement)
+            }
+
+            ScreenReaderCommand::ReviewBottom => {
+                let line = self.review_cursor.bottom();
+                let announcement = if line.trim().is_empty() {
+                    self.loc.t("format.blank").to_string()
+                } else {
+                    line.to_string()
+                };
+                let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                EngineAction::Spoke(announcement)
+            }
+
+            ScreenReaderCommand::ReviewStartOfLine => {
+                if let Some(ch) = self.review_cursor.start_of_line() {
+                    let announcement = Self::format_character(ch, &self.loc);
+                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                    EngineAction::Spoke(announcement)
+                } else {
+                    let msg = self.loc.t("format.blank");
+                    let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                    EngineAction::Spoke(msg.to_string())
+                }
+            }
+
+            ScreenReaderCommand::ReviewEndOfLine => {
+                if let Some(ch) = self.review_cursor.end_of_line() {
+                    let announcement = Self::format_character(ch, &self.loc);
+                    let _ = self.speech_hub.speak(&announcement, SpeechPriority::Now);
+                    EngineAction::Spoke(announcement)
+                } else {
+                    let msg = self.loc.t("format.blank");
+                    let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
+                    EngineAction::Spoke(msg.to_string())
+                }
+            }
+
+            _ => EngineAction::None,
+        }
+    }
+
+    /// Formats an individual character for speech presentation.
+    fn format_character(c: char, loc: &bit_sr_core::LocalizationManager) -> String {
+        match c {
+            ' ' => loc.t("key.space").to_string(),
+            '\t' => "tab".to_string(),
+            '\n' | '\r' => loc.t("format.blank").to_string(),
+            c if c.is_ascii_uppercase() => format!("cap {}", c),
+            other => other.to_string(),
         }
     }
 
@@ -1412,6 +1759,219 @@ mod tests {
                 "Browse mode"
             ]
         );
+    }
+
+    #[test]
+    fn test_coordinator_review_cursor_navigation() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+        coordinator
+            .review_cursor
+            .set_text("Hello world\nSecond line\nFinal line".to_string(), None);
+
+        // Numpad 8: Current Line (1st = line, 2nd = spell, 3rd = NATO phonetic)
+        let key_np8 = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Numpad8,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action1 = coordinator.handle_event(AccessibilityEvent::Input(key_np8.clone()));
+        assert_eq!(action1, EngineAction::Spoke("Hello world".to_string()));
+
+        let action2 = coordinator.handle_event(AccessibilityEvent::Input(key_np8.clone()));
+        assert_eq!(
+            action2,
+            EngineAction::Spoke("H e l l o space w o r l d".to_string())
+        );
+
+        let action3 = coordinator.handle_event(AccessibilityEvent::Input(key_np8));
+        assert_eq!(
+            action3,
+            EngineAction::Spoke(
+                "Hotel, Echo, Lima, Lima, Oscar, Space, Whiskey, Oscar, Romeo, Lima, Delta"
+                    .to_string()
+            )
+        );
+
+        // Numpad 9: Next Line
+        let key_np9 = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Numpad9,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_next = coordinator.handle_event(AccessibilityEvent::Input(key_np9));
+        assert_eq!(action_next, EngineAction::Spoke("Second line".to_string()));
+
+        // Numpad 7: Previous Line
+        let key_np7 = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Numpad7,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_prev = coordinator.handle_event(AccessibilityEvent::Input(key_np7.clone()));
+        assert_eq!(action_prev, EngineAction::Spoke("Hello world".to_string()));
+
+        // Previous Line at Top -> "Top"
+        let action_top_hit = coordinator.handle_event(AccessibilityEvent::Input(key_np7));
+        assert_eq!(action_top_hit, EngineAction::Spoke("Top".to_string()));
+
+        // Numpad 5: Current Word (1st = word, 2nd = spell word)
+        let key_np5 = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Numpad5,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_w1 = coordinator.handle_event(AccessibilityEvent::Input(key_np5.clone()));
+        assert_eq!(action_w1, EngineAction::Spoke("Hello".to_string()));
+
+        let action_w2 = coordinator.handle_event(AccessibilityEvent::Input(key_np5));
+        assert_eq!(action_w2, EngineAction::Spoke("H e l l o".to_string()));
+
+        // Numpad 6: Next Word
+        let key_np6 = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Numpad6,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_w_next = coordinator.handle_event(AccessibilityEvent::Input(key_np6));
+        assert_eq!(action_w_next, EngineAction::Spoke("world".to_string()));
+
+        // Numpad 2: Current Character (1st = char, 2nd = phonetic, 3rd = ordinal)
+        let key_np2 = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Numpad2,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_c1 = coordinator.handle_event(AccessibilityEvent::Input(key_np2.clone()));
+        assert_eq!(action_c1, EngineAction::Spoke("w".to_string()));
+
+        let action_c2 = coordinator.handle_event(AccessibilityEvent::Input(key_np2.clone()));
+        assert_eq!(action_c2, EngineAction::Spoke("Whiskey".to_string()));
+
+        let action_c3 = coordinator.handle_event(AccessibilityEvent::Input(key_np2));
+        assert_eq!(action_c3, EngineAction::Spoke("119, 0x77".to_string()));
+
+        // Shift + Numpad 9 -> Bottom
+        let key_shift_np9 = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::Numpad9,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::SHIFT,
+        );
+        let action_bottom = coordinator.handle_event(AccessibilityEvent::Input(key_shift_np9));
+        assert_eq!(action_bottom, EngineAction::Spoke("Final line".to_string()));
+
+        // NumLock toggle announcement
+        let action_num = coordinator.handle_event(AccessibilityEvent::NumLockToggled(true));
+        assert_eq!(action_num, EngineAction::Spoke("Num Lock on".to_string()));
+    }
+
+    #[test]
+    fn test_normal_gui_does_not_activate_browse_mode() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+
+        // Focus on a normal GUI control (Notepad, File Explorer, CMD, etc.)
+        let gui_node = bit_sr_core::node::AccessibleNode {
+            id: NodeId(50),
+            name: Some("Text Editor".to_string()),
+            role: Role::EditableText,
+            is_web_content: false,
+            ..Default::default()
+        };
+        coordinator.handle_event(AccessibilityEvent::Focus(gui_node));
+
+        // WebController must be None
+        assert!(coordinator.web_controller.is_none());
+
+        // Toggle Browse Mode command in normal GUI must NOT activate browse mode
+        let toggle_action = coordinator.execute_command(ScreenReaderCommand::ToggleBrowseMode);
+        assert_eq!(toggle_action, EngineAction::None);
+        assert!(coordinator.web_controller.is_none());
+
+        // Navigation key (DownArrow) must not be intercepted by web virtual buffer
+        let key_down = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::DownArrow,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_down = coordinator.handle_event(AccessibilityEvent::Input(key_down));
+        // Without text_provider caret text, returns None and passes through to native app
+        assert_eq!(action_down, EngineAction::None);
+
+        // Single-letter quick nav (e.g. H) must not be intercepted in normal GUI
+        let key_h = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::H,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_h = coordinator.handle_event(AccessibilityEvent::Input(key_h));
+        // Typing echo echoes "h" instead of swallowing it for web heading nav
+        assert_eq!(action_h, EngineAction::Spoke("h".to_string()));
+    }
+
+    #[test]
+    fn test_webview_focus_activates_browse_mode_and_normal_gui_deactivates() {
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+
+        // 1. Focus enters a WebView / web document
+        let web_doc = bit_sr_core::node::AccessibleNode {
+            id: NodeId(101),
+            name: Some("Web Page Document".to_string()),
+            role: Role::Document,
+            is_web_content: true,
+            ..Default::default()
+        };
+        coordinator.handle_event(AccessibilityEvent::Focus(web_doc));
+
+        // WebController must now be active in Browse Mode
+        assert!(coordinator.web_controller.is_some());
+        assert_eq!(
+            coordinator.web_controller.as_ref().unwrap().mode(),
+            bit_sr_web::NavigationMode::Browse
+        );
+
+        // 2. Focus moves to an edit field inside the WebView
+        let web_edit = bit_sr_core::node::AccessibleNode {
+            id: NodeId(102),
+            name: Some("Search Query".to_string()),
+            role: Role::EditableText,
+            is_web_content: true,
+            ..Default::default()
+        };
+        coordinator.handle_event(AccessibilityEvent::Focus(web_edit));
+        // Automatically switches to Focus Mode (unbrowse mode) for typing
+        assert_eq!(
+            coordinator.web_controller.as_ref().unwrap().mode(),
+            bit_sr_web::NavigationMode::Focus
+        );
+
+        // 3. User tabs/switches focus out of the WebView into normal GUI (e.g. Windows desktop or File Explorer)
+        let normal_gui = bit_sr_core::node::AccessibleNode {
+            id: NodeId(200),
+            name: Some("File Explorer".to_string()),
+            role: Role::ListItem,
+            is_web_content: false,
+            ..Default::default()
+        };
+        coordinator.handle_event(AccessibilityEvent::Focus(normal_gui));
+
+        // WebController must be completely deactivated (None)
+        assert!(coordinator.web_controller.is_none());
+
+        // In normal GUI, ToggleBrowseMode does nothing
+        let toggle = coordinator.execute_command(ScreenReaderCommand::ToggleBrowseMode);
+        assert_eq!(toggle, EngineAction::None);
+        assert!(coordinator.web_controller.is_none());
     }
 }
 

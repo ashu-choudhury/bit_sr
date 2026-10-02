@@ -485,6 +485,60 @@ impl UiaElement {
             }
         };
 
+        let framework_id = unsafe {
+            self.raw
+                .GetCachedPropertyValue(UIA_FrameworkIdPropertyId)
+                .or_else(|_| self.raw.GetCurrentPropertyValue(UIA_FrameworkIdPropertyId))
+                .ok()
+                .and_then(|v| variant_to_string(&v))
+        };
+
+        let is_web_content = aria_role.is_some()
+            || framework_id.as_deref() == Some("Chrome")
+            || framework_id.as_deref() == Some("Gecko")
+            || class_name
+                .as_deref()
+                .map(|c| {
+                    c == "Chrome_RenderWidgetHostHWND"
+                        || c == "MozillaContentWindowClass"
+                        || c == "Intermediate D3D Window"
+                        || c.contains("WebView")
+                        || c.contains("RenderWidget")
+                        || c == "Internet Explorer_Server"
+                })
+                .unwrap_or(false)
+            || hwnd
+                .map(|h| {
+                    let win = windows::Win32::Foundation::HWND(h as _);
+                    let mut class_buf = [0u16; 256];
+                    let len = unsafe {
+                        windows::Win32::UI::WindowsAndMessaging::GetClassNameW(win, &mut class_buf)
+                    };
+                    if len > 0 {
+                        let win_cls = String::from_utf16_lossy(&class_buf[..len as usize]);
+                        win_cls == "Chrome_RenderWidgetHostHWND"
+                            || win_cls == "MozillaContentWindowClass"
+                            || win_cls == "Intermediate D3D Window"
+                            || win_cls.contains("WebView")
+                            || win_cls.contains("RenderWidget")
+                            || win_cls == "Internet Explorer_Server"
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+            || process_id
+                .and_then(crate::apps::get_process_name_by_pid)
+                .map(|proc_name| {
+                    (crate::apps::ChromiumFilter::is_chromium_process(&proc_name)
+                        || crate::apps::FirefoxFilter::is_gecko_process(&proc_name))
+                        && matches!(
+                            role,
+                            Role::Document | Role::Frame | Role::Heading | Role::Link | Role::Paragraph
+                        )
+                })
+                .unwrap_or(false);
+
         AccessibleNode {
             id,
             role,
@@ -504,6 +558,7 @@ impl UiaElement {
                 level,
             },
             process_id,
+            is_web_content,
             ..Default::default()
         }
     }

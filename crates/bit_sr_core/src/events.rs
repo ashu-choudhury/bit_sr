@@ -55,6 +55,9 @@ pub enum AccessibilityEvent {
     /// Caps Lock hardware state was toggled via double-tap.
     CapsLockToggled(bool),
 
+    /// Num Lock hardware state was toggled.
+    NumLockToggled(bool),
+
     /// Instant speech cancellation requested by keypress.
     SpeechInterrupt,
 

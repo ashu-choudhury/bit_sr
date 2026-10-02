@@ -99,6 +99,12 @@ impl MsaaElement {
 
         let id = NodeId((self.hwnd as u64) << 32 | (self.child_id as u32 as u64));
 
+        let is_web_content = {
+            let win = windows::Win32::Foundation::HWND(self.hwnd as _);
+            crate::apps::ChromiumFilter::is_chromium_hwnd(win)
+                || crate::apps::FirefoxFilter::is_gecko_hwnd(win)
+        };
+
         AccessibleNode {
             id,
             role,
@@ -106,6 +112,7 @@ impl MsaaElement {
             name,
             value,
             description,
+            is_web_content,
             ..Default::default()
         }
     }

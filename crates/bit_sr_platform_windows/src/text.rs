@@ -87,6 +87,32 @@ impl WindowsTextProvider {
         }
         None
     }
+
+    /// Obtains full document or visible terminal text from the element or its nearest ancestors.
+    fn get_document_from_element_or_ancestors(
+        &self,
+        elem: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+    ) -> Option<String> {
+        let patterns = Patterns::new(elem);
+        if let Ok(Some(text)) = patterns.get_document_text() {
+            return Some(text);
+        }
+        if let Ok(nav) = self.uia.control_view_navigator() {
+            let mut current = elem.clone();
+            for _ in 0..3 {
+                if let Some(parent) = nav.get_parent(&current) {
+                    let pat = Patterns::new(&parent);
+                    if let Ok(Some(text)) = pat.get_document_text() {
+                        return Some(text);
+                    }
+                    current = parent;
+                } else {
+                    break;
+                }
+            }
+        }
+        None
+    }
 }
 
 impl TextProvider for WindowsTextProvider {
@@ -150,6 +176,58 @@ impl TextProvider for WindowsTextProvider {
         if !focus_hwnd.0.is_null() {
             if let Some(text) = EditControlReader::get_selected_text(focus_hwnd) {
                 return Some(text);
+            }
+        }
+
+        None
+    }
+
+    fn get_document_text(&self) -> Option<String> {
+        // 1. Try UIA TextPattern on focused element and ancestors (e.g. terminals, documents)
+        if let Ok(elem) = self.uia.get_focused_element() {
+            if let Some(text) = self.get_document_from_element_or_ancestors(elem.raw()) {
+                return Some(text);
+            }
+        }
+
+        let focus_hwnd = Self::get_focused_hwnd();
+
+        // 2. Try UIA TextPattern on element from focused HWND
+        if !focus_hwnd.0.is_null() {
+            if let Ok(elem) = self.uia.element_from_handle(focus_hwnd) {
+                if let Some(text) = self.get_document_from_element_or_ancestors(elem.raw()) {
+                    return Some(text);
+                }
+            }
+        }
+
+        // 3. Fallback to classic Win32 Edit control full text
+        if !focus_hwnd.0.is_null() {
+            if let Some(text) = EditControlReader::get_window_text(focus_hwnd) {
+                if !text.is_empty() {
+                    return Some(text);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn get_caret_offset(&self) -> Option<usize> {
+        // 1. Try UIA on focused element
+        if let Ok(elem) = self.uia.get_focused_element() {
+            let pat = Patterns::new(elem.raw());
+            if let Ok(Some(offset)) = pat.get_caret_offset() {
+                return Some(offset);
+            }
+        }
+
+        let focus_hwnd = Self::get_focused_hwnd();
+
+        // 2. Try Win32 Edit control
+        if !focus_hwnd.0.is_null() {
+            if let Some((start, _)) = EditControlReader::get_selection(focus_hwnd) {
+                return Some(start);
             }
         }
 

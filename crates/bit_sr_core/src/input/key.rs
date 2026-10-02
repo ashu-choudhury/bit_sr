@@ -55,7 +55,7 @@ pub enum Key {
     RightSuper,
     Menu,        // Context Menu key / Applications key
 
-    // Numpad Keys
+    // Numpad Keys (NumLock OFF - review navigation)
     Numpad0, Numpad1, Numpad2, Numpad3, Numpad4,
     Numpad5, Numpad6, Numpad7, Numpad8, Numpad9,
     NumpadAdd,
@@ -64,6 +64,10 @@ pub enum Key {
     NumpadDivide,
     NumpadDecimal,
     NumpadEnter,
+
+    // Numpad Keys (NumLock ON - numeric entry)
+    NumLockNumpad0, NumLockNumpad1, NumLockNumpad2, NumLockNumpad3, NumLockNumpad4,
+    NumLockNumpad5, NumLockNumpad6, NumLockNumpad7, NumLockNumpad8, NumLockNumpad9,
 
     // Punctuation and Symbols
     Grave,        // ` ~
@@ -147,6 +151,11 @@ impl Key {
             Self::Numpad3 => "numpad3", Self::Numpad4 => "numpad4", Self::Numpad5 => "numpad5",
             Self::Numpad6 => "numpad6", Self::Numpad7 => "numpad7", Self::Numpad8 => "numpad8",
             Self::Numpad9 => "numpad9",
+            Self::NumLockNumpad0 => "numlock_numpad0", Self::NumLockNumpad1 => "numlock_numpad1",
+            Self::NumLockNumpad2 => "numlock_numpad2", Self::NumLockNumpad3 => "numlock_numpad3",
+            Self::NumLockNumpad4 => "numlock_numpad4", Self::NumLockNumpad5 => "numlock_numpad5",
+            Self::NumLockNumpad6 => "numlock_numpad6", Self::NumLockNumpad7 => "numlock_numpad7",
+            Self::NumLockNumpad8 => "numlock_numpad8", Self::NumLockNumpad9 => "numlock_numpad9",
             Self::NumpadAdd => "numpad_plus",
             Self::NumpadSubtract => "numpad_minus",
             Self::NumpadMultiply => "numpad_multiply",
@@ -233,6 +242,11 @@ impl Key {
             Self::Numpad3 => "Numpad 3", Self::Numpad4 => "Numpad 4", Self::Numpad5 => "Numpad 5",
             Self::Numpad6 => "Numpad 6", Self::Numpad7 => "Numpad 7", Self::Numpad8 => "Numpad 8",
             Self::Numpad9 => "Numpad 9",
+            Self::NumLockNumpad0 => "Numpad 0", Self::NumLockNumpad1 => "Numpad 1",
+            Self::NumLockNumpad2 => "Numpad 2", Self::NumLockNumpad3 => "Numpad 3",
+            Self::NumLockNumpad4 => "Numpad 4", Self::NumLockNumpad5 => "Numpad 5",
+            Self::NumLockNumpad6 => "Numpad 6", Self::NumLockNumpad7 => "Numpad 7",
+            Self::NumLockNumpad8 => "Numpad 8", Self::NumLockNumpad9 => "Numpad 9",
             Self::NumpadAdd => "Numpad Plus",
             Self::NumpadSubtract => "Numpad Minus",
             Self::NumpadMultiply => "Numpad Multiply",
@@ -321,6 +335,16 @@ impl Key {
                 | Self::Num7
                 | Self::Num8
                 | Self::Num9
+                | Self::NumLockNumpad0
+                | Self::NumLockNumpad1
+                | Self::NumLockNumpad2
+                | Self::NumLockNumpad3
+                | Self::NumLockNumpad4
+                | Self::NumLockNumpad5
+                | Self::NumLockNumpad6
+                | Self::NumLockNumpad7
+                | Self::NumLockNumpad8
+                | Self::NumLockNumpad9
         )
     }
 
@@ -383,6 +407,16 @@ impl Key {
             "numpad4" => Some(Self::Numpad4), "numpad5" => Some(Self::Numpad5),
             "numpad6" => Some(Self::Numpad6), "numpad7" => Some(Self::Numpad7),
             "numpad8" => Some(Self::Numpad8), "numpad9" => Some(Self::Numpad9),
+            "numlock_numpad0" | "numlocknumpad0" => Some(Self::NumLockNumpad0),
+            "numlock_numpad1" | "numlocknumpad1" => Some(Self::NumLockNumpad1),
+            "numlock_numpad2" | "numlocknumpad2" => Some(Self::NumLockNumpad2),
+            "numlock_numpad3" | "numlocknumpad3" => Some(Self::NumLockNumpad3),
+            "numlock_numpad4" | "numlocknumpad4" => Some(Self::NumLockNumpad4),
+            "numlock_numpad5" | "numlocknumpad5" => Some(Self::NumLockNumpad5),
+            "numlock_numpad6" | "numlocknumpad6" => Some(Self::NumLockNumpad6),
+            "numlock_numpad7" | "numlocknumpad7" => Some(Self::NumLockNumpad7),
+            "numlock_numpad8" | "numlocknumpad8" => Some(Self::NumLockNumpad8),
+            "numlock_numpad9" | "numlocknumpad9" => Some(Self::NumLockNumpad9),
             "numpad_plus" | "numpad_add" | "numplus" => Some(Self::NumpadAdd),
             "numpad_minus" | "numpad_subtract" | "numminus" => Some(Self::NumpadSubtract),
             "numpad_multiply" | "nummultiply" => Some(Self::NumpadMultiply),
