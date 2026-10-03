@@ -58,7 +58,7 @@ impl Linearizer {
         }
 
         // If this node itself produces readable text run(s)
-        if let Some(run) = Self::create_run_from_node(node) {
+        if let Some(run) = Self::create_run_from_node(node, current_runs) {
             current_runs.push(run);
         }
 
@@ -102,7 +102,7 @@ impl Linearizer {
     }
 
     /// Creates a TextRun from a node if it represents printable or interactive content.
-    fn create_run_from_node(node: &AccessibleNode) -> Option<TextRun> {
+    fn create_run_from_node(node: &AccessibleNode, current_runs: &[TextRun]) -> Option<TextRun> {
         let text_opt = node.name.as_deref().or(node.value.as_deref());
 
         // Extract heading level
@@ -231,6 +231,15 @@ impl Linearizer {
             Role::StaticText => {
                 let text = text_opt.unwrap_or("").trim();
                 if !text.is_empty() {
+                    // Anti-duplication: avoid re-adding identical text if the immediate previous run
+                    // was a Heading, Button, or Link that already incorporated this text.
+                    if let Some(last_run) = current_runs.last() {
+                        if last_run.text.trim() == text
+                            && matches!(last_run.role, Role::Heading | Role::Button | Role::Link)
+                        {
+                            return None;
+                        }
+                    }
                     Some(TextRun {
                         text: text.to_string(),
                         node_id: node.id,
@@ -353,5 +362,35 @@ mod tests {
     fn p_id_setup(node: &mut AccessibleNode, id: NodeId) {
         node.id = id;
         node.role = Role::Paragraph;
+    }
+
+    #[test]
+    fn test_linearizer_deduplicates_child_static_text() {
+        let mut tree = AccessibilityTree::new();
+        let doc_id = NodeId(1);
+        let mut doc = AccessibleNode::default();
+        doc.id = doc_id;
+        doc.role = Role::Document;
+        tree.insert(doc);
+
+        let h_id = NodeId(2);
+        let mut h_node = AccessibleNode::default();
+        h_node.id = h_id;
+        h_node.role = Role::Heading;
+        h_node.name = Some("Installation Guide".to_string());
+        h_node.position_info = PositionInfo { level: Some(2), ..Default::default() };
+        tree.attach_child(doc_id, h_node);
+
+        // Child StaticText with the exact same text as the heading
+        let text_id = NodeId(3);
+        let mut text_node = AccessibleNode::default();
+        text_node.id = text_id;
+        text_node.role = Role::StaticText;
+        text_node.name = Some("Installation Guide".to_string());
+        tree.attach_child(h_id, text_node);
+
+        let buffer = Linearizer::compile(&tree, doc_id);
+        assert_eq!(buffer.line_count(), 1);
+        assert_eq!(buffer.lines[0].spoken_text(), "heading level 2 Installation Guide");
     }
 }

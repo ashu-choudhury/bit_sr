@@ -175,6 +175,18 @@ impl UiaElement {
         &self.raw
     }
 
+    /// Queries the NativeWindowHandle (HWND) for this element.
+    pub fn hwnd(&self) -> Option<usize> {
+        unsafe {
+            self.raw
+                .CachedNativeWindowHandle()
+                .or_else(|_| self.raw.CurrentNativeWindowHandle())
+                .ok()
+                .map(|h| h.0 as usize)
+                .filter(|&h| h != 0)
+        }
+    }
+
     /// Converts this UIA element into a unified AccessibleNode.
     /// Gracefully falls back from Cached to Current properties to guarantee out-of-process
     /// and webview element retrieval without failing on un-cached event targets.
@@ -530,12 +542,35 @@ impl UiaElement {
             || process_id
                 .and_then(crate::apps::get_process_name_by_pid)
                 .map(|proc_name| {
-                    (crate::apps::ChromiumFilter::is_chromium_process(&proc_name)
-                        || crate::apps::FirefoxFilter::is_gecko_process(&proc_name))
-                        && matches!(
+                    let proc_lower = proc_name.to_lowercase();
+                    let is_webview = proc_lower.contains("webview") || proc_lower == "msedgewebview2.exe";
+                    let is_browser = crate::apps::ChromiumFilter::is_chromium_process(&proc_name)
+                        || crate::apps::FirefoxFilter::is_gecko_process(&proc_name);
+
+                    if is_webview {
+                        true
+                    } else if is_browser {
+                        matches!(
                             role,
-                            Role::Document | Role::Frame | Role::Heading | Role::Link | Role::Paragraph
+                            Role::Document
+                                | Role::Frame
+                                | Role::Heading
+                                | Role::Link
+                                | Role::Paragraph
+                                | Role::Button
+                                | Role::CheckBox
+                                | Role::RadioButton
+                                | Role::EditableText
+                                | Role::ComboBox
+                                | Role::List
+                                | Role::ListItem
+                                | Role::Table
+                                | Role::StaticText
+                                | Role::Graphic
                         )
+                    } else {
+                        false
+                    }
                 })
                 .unwrap_or(false);
 

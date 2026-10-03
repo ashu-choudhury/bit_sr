@@ -355,6 +355,13 @@ impl VirtualBuffer {
         }
     }
 
+    /// Finds the index of the first line containing a run originating from the specified node_id.
+    pub fn find_line_by_node_id(&self, node_id: NodeId) -> Option<usize> {
+        self.lines.iter().position(|line| {
+            line.runs.iter().any(|run| run.node_id == node_id)
+        })
+    }
+
     /// Moves cursor to top of the document.
     pub fn doc_start(&mut self) {
         self.cursor_line = 0;
@@ -591,5 +598,24 @@ mod tests {
         assert_eq!(buf.cursor_line, 0);
         buf.doc_end();
         assert_eq!(buf.cursor_line, 2);
+    }
+
+    #[test]
+    fn test_find_line_by_node_id() {
+        let node1 = NodeId(10);
+        let node2 = NodeId(20);
+        let node3 = NodeId(30);
+
+        let lines = vec![
+            BufferLine::new(0, vec![TextRun::new_heading(node1, "Title", 1)]),
+            BufferLine::new(1, vec![TextRun::new_text(node2, "Body text")]),
+            BufferLine::new(2, vec![TextRun::new_button(node3, "OK")]),
+        ];
+
+        let buf = VirtualBuffer::with_lines(NodeId(1), lines);
+        assert_eq!(buf.find_line_by_node_id(node1), Some(0));
+        assert_eq!(buf.find_line_by_node_id(node2), Some(1));
+        assert_eq!(buf.find_line_by_node_id(node3), Some(2));
+        assert_eq!(buf.find_line_by_node_id(NodeId(999)), None);
     }
 }

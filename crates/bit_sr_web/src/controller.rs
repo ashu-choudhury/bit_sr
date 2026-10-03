@@ -249,23 +249,29 @@ impl WebController {
     }
 
     /// Evaluates focus changes from the platform to trigger automatic state transitions.
+    /// Non-editable controls and document reading elements default to Browse Mode.
+    /// Editable text and inputs switch to Focus Mode.
     pub fn handle_focus_change(&mut self, node: &AccessibleNode) -> Vec<WebAction> {
         let mut actions = Vec::new();
 
-        match node.role {
-            Role::EditableText | Role::ComboBox | Role::Slider | Role::SpinButton => {
-                if self.buffer.mode != NavigationMode::Focus {
-                    let mut switch_actions = self.set_mode(NavigationMode::Focus);
-                    actions.append(&mut switch_actions);
-                }
+        let should_focus = (node.states.contains(bit_sr_core::states::State::EDITABLE)
+            && !node.states.contains(bit_sr_core::states::State::READONLY))
+            || matches!(
+                node.role,
+                Role::EditableText | Role::ComboBox | Role::Slider | Role::SpinButton
+            );
+
+        if should_focus {
+            if self.buffer.mode != NavigationMode::Focus {
+                let mut switch_actions = self.set_mode(NavigationMode::Focus);
+                actions.append(&mut switch_actions);
             }
-            Role::Document | Role::Section => {
-                if self.buffer.mode != NavigationMode::Browse {
-                    let mut switch_actions = self.set_mode(NavigationMode::Browse);
-                    actions.append(&mut switch_actions);
-                }
+        } else {
+            // Non-editable controls (Buttons, Links, CheckBoxes, Headings, Document, etc.) default to Browse Mode
+            if self.buffer.mode != NavigationMode::Browse {
+                let mut switch_actions = self.set_mode(NavigationMode::Browse);
+                actions.append(&mut switch_actions);
             }
-            _ => {}
         }
 
         actions
@@ -333,6 +339,47 @@ mod tests {
         let esc_event = KeyEvent::new(Key::Escape, bit_sr_core::input::KeyAction::Down, KeyModifiers::empty());
 
         let actions = controller.handle_key(&esc_event);
+        assert_eq!(controller.mode(), NavigationMode::Browse);
+        assert!(actions.contains(&WebAction::SwitchMode(NavigationMode::Browse)));
+    }
+
+    #[test]
+    fn test_handle_focus_change_auto_mode_switching() {
+        let mut controller = WebController::new(VirtualBuffer::default());
+        assert_eq!(controller.mode(), NavigationMode::Browse);
+
+        // Focus on a button -> stays in Browse mode
+        let mut btn = AccessibleNode::default();
+        btn.role = Role::Button;
+        let actions = controller.handle_focus_change(&btn);
+        assert!(actions.is_empty());
+        assert_eq!(controller.mode(), NavigationMode::Browse);
+
+        // Focus on an edit box -> switches to Focus mode
+        let mut edit = AccessibleNode::default();
+        edit.role = Role::EditableText;
+        let actions = controller.handle_focus_change(&edit);
+        assert_eq!(controller.mode(), NavigationMode::Focus);
+        assert!(actions.contains(&WebAction::SwitchMode(NavigationMode::Focus)));
+
+        // Focus on a link -> switches back to Browse mode
+        let mut link = AccessibleNode::default();
+        link.role = Role::Link;
+        let actions = controller.handle_focus_change(&link);
+        assert_eq!(controller.mode(), NavigationMode::Browse);
+        assert!(actions.contains(&WebAction::SwitchMode(NavigationMode::Browse)));
+
+        // Focus on a combobox -> switches to Focus mode
+        let mut combo = AccessibleNode::default();
+        combo.role = Role::ComboBox;
+        let actions = controller.handle_focus_change(&combo);
+        assert_eq!(controller.mode(), NavigationMode::Focus);
+        assert!(actions.contains(&WebAction::SwitchMode(NavigationMode::Focus)));
+
+        // Focus on Document container -> switches back to Browse mode
+        let mut doc = AccessibleNode::default();
+        doc.role = Role::Document;
+        let actions = controller.handle_focus_change(&doc);
         assert_eq!(controller.mode(), NavigationMode::Browse);
         assert!(actions.contains(&WebAction::SwitchMode(NavigationMode::Browse)));
     }

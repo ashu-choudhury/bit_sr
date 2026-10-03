@@ -53,18 +53,39 @@ impl TreeNavigator {
     pub fn find_enclosing_document(&self, start: &IUIAutomationElement) -> IUIAutomationElement {
         let mut current = start.clone();
         let mut document_candidate = start.clone();
+        let mut found_doc = false;
+
+        let start_node = crate::uia::UiaElement::new(start.clone()).to_accessible_node();
+        if start_node.is_web_document() || start_node.role == bit_sr_core::Role::Document {
+            document_candidate = start.clone();
+            found_doc = true;
+        }
 
         for _ in 0..25 {
             if let Some(parent) = self.get_parent(&current) {
                 let node = crate::uia::UiaElement::new(parent.clone()).to_accessible_node();
                 if node.is_web_document() || node.role == bit_sr_core::Role::Document {
                     document_candidate = parent.clone();
-                } else if node
-                    .class_name
-                    .as_deref()
-                    .map(|c| c.contains("Chrome_RenderWidgetHost") || c.contains("MozillaContentWindowClass"))
-                    .unwrap_or(false)
+                    found_doc = true;
+                } else if !found_doc
+                    && node
+                        .class_name
+                        .as_deref()
+                        .map(|c| {
+                            c.contains("Chrome_RenderWidgetHost")
+                                || c.contains("MozillaContentWindowClass")
+                                || c.contains("Intermediate D3D Window")
+                                || c.contains("WebView")
+                        })
+                        .unwrap_or(false)
                 {
+                    if let Some(child) = self.get_first_child(&parent) {
+                        let child_node = crate::uia::UiaElement::new(child.clone()).to_accessible_node();
+                        if child_node.is_web_document() || child_node.role == bit_sr_core::Role::Document {
+                            document_candidate = child;
+                            break;
+                        }
+                    }
                     document_candidate = parent.clone();
                     break;
                 }

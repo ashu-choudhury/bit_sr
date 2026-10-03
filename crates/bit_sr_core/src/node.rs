@@ -259,7 +259,7 @@ impl AccessibleNode {
     }
 
     pub fn is_editable(&self) -> bool {
-        matches!(self.role, Role::EditableText | Role::Document | Role::Terminal)
+        matches!(self.role, Role::EditableText | Role::Terminal)
             || (!self.states.contains(State::READONLY) && self.action_capabilities.contains(ActionCapabilities::SET_TEXT))
             || self.states.contains(State::EDITABLE)
     }

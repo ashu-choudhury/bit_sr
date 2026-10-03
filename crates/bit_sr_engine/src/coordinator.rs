@@ -602,17 +602,27 @@ impl EngineCoordinator {
 
                 // Web Virtual Buffer & Browse/Focus Mode Handling:
                 // Strictly active only within WebView / web document content.
-                if !focused_node.is_web_content {
+                if !focused_node.is_web_content && !focused_node.is_web_document() {
                     // Normal GUI control: deactivate WebController so Browse Mode and key interception never occur.
                     self.web_controller = None;
                     #[cfg(windows)]
                     bit_sr_platform_windows::set_browse_mode_active(false);
                 } else {
                     // Focus is inside a WebView / web document
-                    if self.web_controller.is_none() && (focused_node.is_web_content || focused_node.is_web_document()) {
+                    let needs_harvest = match self.web_controller {
+                        None => true,
+                        Some(ref wc) => wc.buffer.is_empty(),
+                    };
+
+                    if needs_harvest {
                         let buffer = if let Some(ref tp) = self.tree_provider {
                             if let Some(tree) = tp.harvest_tree(14, 1500) {
-                                bit_sr_web::Linearizer::compile(&tree, focused_node.id)
+                                let root_id = tree.root_id().unwrap_or(focused_node.id);
+                                let mut b = bit_sr_web::Linearizer::compile(&tree, root_id);
+                                if let Some(line_idx) = b.find_line_by_node_id(focused_node.id) {
+                                    b.set_cursor_line(line_idx);
+                                }
+                                b
                             } else {
                                 let mut b = bit_sr_web::VirtualBuffer::new(focused_node.id);
                                 b.title = focused_node.name.clone();
@@ -623,14 +633,20 @@ impl EngineCoordinator {
                             b.title = focused_node.name.clone();
                             b
                         };
-                        let is_browse = buffer.mode == bit_sr_web::NavigationMode::Browse;
-                        #[cfg(windows)]
-                        bit_sr_platform_windows::set_browse_mode_active(is_browse);
-                        self.web_controller = Some(bit_sr_web::WebController::new(buffer));
-                    }
 
-                    // Update WebController automatic Browse/Focus mode state machine strictly within the WebView
-                    if let Some(ref mut wc) = self.web_controller {
+                        // By default, entering a web document enters Browse Mode unless focused on an editable field
+                        let mut wc = bit_sr_web::WebController::new(buffer);
+                        let _ = wc.handle_focus_change(focused_node);
+                        #[cfg(windows)]
+                        bit_sr_platform_windows::set_browse_mode_active(wc.mode() == bit_sr_web::NavigationMode::Browse);
+                        self.web_controller = Some(wc);
+                    } else if let Some(ref mut wc) = self.web_controller {
+                        // Position cursor at newly focused element if found
+                        if let Some(line_idx) = wc.buffer.find_line_by_node_id(focused_node.id) {
+                            wc.buffer.set_cursor_line(line_idx);
+                        }
+
+                        // Update WebController automatic Browse/Focus mode state machine strictly within the WebView
                         let web_actions = wc.handle_focus_change(focused_node);
                         for action in web_actions {
                             if let bit_sr_web::WebAction::SwitchMode(mode) = action {
@@ -656,10 +672,12 @@ impl EngineCoordinator {
 
             AccessibilityEvent::WindowActivated(node) => {
                 self.last_selection = None;
-                if !node.is_web_content {
+                if !node.is_web_content && !node.is_web_document() {
                     self.web_controller = None;
                     #[cfg(windows)]
                     bit_sr_platform_windows::set_browse_mode_active(false);
+                } else {
+                    self.web_controller = None;
                 }
                 let title = self.focus_tracker.on_window_activated(&node);
                 if let Some(t) = title {
@@ -904,8 +922,8 @@ impl EngineCoordinator {
                 if let Some(ref mut wc) = self.web_controller {
                     if wc.buffer.line_count() == 0 {
                         if let Some(ref tp) = self.tree_provider {
-                            let root_id = wc.buffer.document_node_id;
                             if let Some(tree) = tp.harvest_tree(14, 1500) {
+                                let root_id = tree.root_id().unwrap_or(wc.buffer.document_node_id);
                                 wc.buffer = bit_sr_web::Linearizer::compile(&tree, root_id);
                             }
                         }
@@ -2014,6 +2032,147 @@ mod tests {
         let toggle = coordinator.execute_command(ScreenReaderCommand::ToggleBrowseMode);
         assert_eq!(toggle, EngineAction::None);
         assert!(coordinator.web_controller.is_none());
+    }
+
+    #[test]
+    fn test_webview_child_focus_linearizes_entire_document_root() {
+        use bit_sr_core::node::AccessibleNode;
+
+        let mut hub = SpeechHub::new();
+        let mock = MockSynthesizer::new();
+        hub.register_driver(Box::new(mock));
+
+        let mut coordinator = EngineCoordinator::new(hub);
+
+        // Build a mock accessibility tree with a Document root and multiple children
+        let mut tree = bit_sr_core::tree::AccessibilityTree::new();
+        let doc_id = NodeId(10);
+        let mut doc = AccessibleNode::default();
+        doc.id = doc_id;
+        doc.role = Role::Document;
+        doc.name = Some("My Web App".to_string());
+        doc.is_web_content = true;
+        tree.insert(doc);
+
+        let h_id = NodeId(20);
+        let mut heading = AccessibleNode::default();
+        heading.id = h_id;
+        heading.role = Role::Heading;
+        heading.name = Some("Main Heading".to_string());
+        heading.position_info = bit_sr_core::node::PositionInfo { level: Some(1), ..Default::default() };
+        heading.is_web_content = true;
+        tree.attach_child(doc_id, heading);
+
+        let p_id = NodeId(25);
+        let mut p = AccessibleNode::default();
+        p.id = p_id;
+        p.role = Role::Paragraph;
+        p.is_web_content = true;
+        tree.attach_child(doc_id, p);
+
+        let link_id = NodeId(30);
+        let mut link = AccessibleNode::default();
+        link.id = link_id;
+        link.role = Role::Link;
+        link.name = Some("Documentation Link".to_string());
+        link.value = Some("https://example.com".to_string());
+        link.is_web_content = true;
+        tree.attach_child(p_id, link);
+
+        let btn_id = NodeId(40);
+        let mut btn = AccessibleNode::default();
+        btn.id = btn_id;
+        btn.role = Role::Button;
+        btn.name = Some("Submit Button".to_string());
+        btn.is_web_content = true;
+        tree.attach_child(doc_id, btn);
+
+        struct MockWebTreeProvider {
+            tree: bit_sr_core::tree::AccessibilityTree,
+        }
+        impl bit_sr_core::tree::TreeProvider for MockWebTreeProvider {
+            fn harvest_tree(&self, _max_depth: usize, _max_nodes: usize) -> Option<bit_sr_core::tree::AccessibilityTree> {
+                Some(self.tree.clone())
+            }
+        }
+
+        coordinator.set_tree_provider(std::sync::Arc::new(MockWebTreeProvider { tree }));
+
+        // 1. Physical focus lands on the Button (a child node in the web document)
+        let focused_btn = AccessibleNode {
+            id: btn_id,
+            name: Some("Submit Button".to_string()),
+            role: Role::Button,
+            is_web_content: true,
+            ..Default::default()
+        };
+        coordinator.handle_event(AccessibilityEvent::Focus(focused_btn));
+
+        // Controller must be active in Browse Mode by default
+        assert!(coordinator.web_controller.is_some());
+        let wc = coordinator.web_controller.as_ref().unwrap();
+        assert_eq!(wc.mode(), bit_sr_web::NavigationMode::Browse);
+
+        // Entire document must be linearized (all 3 lines present, not just 1!)
+        assert_eq!(wc.buffer.line_count(), 3);
+        // Cursor line should be placed on line 2 (the focused button)
+        assert_eq!(wc.buffer.cursor_line, 2);
+        assert_eq!(wc.buffer.current_line().unwrap().spoken_text(), "Submit Button, button");
+
+        // 2. Press Up Arrow -> reads line 1 (the Link)
+        let up_arrow = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::UpArrow,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_up1 = coordinator.handle_event(AccessibilityEvent::Input(up_arrow.clone()));
+        assert_eq!(action_up1, EngineAction::Spoke("link Documentation Link".to_string()));
+
+        // 3. Press Up Arrow again -> reads line 0 (the Heading)
+        let action_up2 = coordinator.handle_event(AccessibilityEvent::Input(up_arrow));
+        assert_eq!(action_up2, EngineAction::Spoke("heading level 1 Main Heading".to_string()));
+
+        // 4. Quick Nav: press H to find next heading
+        let key_h = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::H,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        // From line 0, searching next heading
+        let action_h = coordinator.handle_event(AccessibilityEvent::Input(key_h));
+        // There is only 1 heading, so searching next says "No next heading"
+        assert_eq!(action_h, EngineAction::Spoke("No next heading".to_string()));
+
+        // 5. Quick Nav: press B to find next button
+        let key_b = bit_sr_core::input::KeyEvent::new(
+            bit_sr_core::input::Key::B,
+            bit_sr_core::input::KeyAction::Down,
+            bit_sr_core::input::KeyModifiers::empty(),
+        );
+        let action_b = coordinator.handle_event(AccessibilityEvent::Input(key_b));
+        assert_eq!(action_b, EngineAction::Spoke("Submit Button, button".to_string()));
+
+        // 6. Focus changes to an edit box -> switches to Focus Mode
+        let edit_box = AccessibleNode {
+            id: NodeId(50),
+            name: Some("Username".to_string()),
+            role: Role::EditableText,
+            is_web_content: true,
+            ..Default::default()
+        };
+        coordinator.handle_event(AccessibilityEvent::Focus(edit_box));
+        assert_eq!(coordinator.web_controller.as_ref().unwrap().mode(), bit_sr_web::NavigationMode::Focus);
+
+        // 7. Focus changes back to the Button -> switches back to Browse Mode!
+        let focused_btn2 = AccessibleNode {
+            id: btn_id,
+            name: Some("Submit Button".to_string()),
+            role: Role::Button,
+            is_web_content: true,
+            ..Default::default()
+        };
+        coordinator.handle_event(AccessibilityEvent::Focus(focused_btn2));
+        assert_eq!(coordinator.web_controller.as_ref().unwrap().mode(), bit_sr_web::NavigationMode::Browse);
     }
 }
 

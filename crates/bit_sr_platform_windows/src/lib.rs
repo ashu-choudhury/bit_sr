@@ -146,10 +146,25 @@ pub struct WindowsTreeProvider {
 
 impl bit_sr_core::tree::TreeProvider for WindowsTreeProvider {
     fn harvest_tree(&self, max_depth: usize, max_nodes: usize) -> Option<bit_sr_core::tree::AccessibilityTree> {
-        let nav = self.uia.control_view_navigator().ok()?;
         let focused = self.uia.get_focused_element().ok()?;
-        let doc_root = nav.find_enclosing_document(focused.raw());
-        Some(nav.harvest_subtree(&doc_root, max_depth, max_nodes))
+
+        if let Some(hwnd) = focused.hwnd() {
+            apps::ChromiumFilter::activate_chromium_ax_mode(windows::Win32::Foundation::HWND(hwnd as _));
+        }
+
+        // Prefer RawViewWalker for web documents because Chromium/WebView2 exposes
+        // static text nodes, headings, and paragraph runs in RawView rather than ControlView.
+        if let Ok(raw_nav) = self.uia.raw_view_navigator() {
+            let doc_root = raw_nav.find_enclosing_document(focused.raw());
+            let tree = raw_nav.harvest_subtree(&doc_root, max_depth, max_nodes);
+            if tree.len() > 1 {
+                return Some(tree);
+            }
+        }
+
+        let ctrl_nav = self.uia.control_view_navigator().ok()?;
+        let doc_root = ctrl_nav.find_enclosing_document(focused.raw());
+        Some(ctrl_nav.harvest_subtree(&doc_root, max_depth, max_nodes))
     }
 }
 
