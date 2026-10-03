@@ -136,6 +136,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Initialize WebAssembly Extension subsystem
+    #[cfg(feature = "plugins")]
+    {
+        match bit_sr_plugin::PluginManager::with_system_defaults(None) {
+            Ok(pm) => {
+                println!("  WebAssembly Extension subsystem initialized.");
+                coordinator.set_plugin_manager(std::sync::Arc::new(pm));
+            }
+            Err(e) => {
+                eprintln!("  Warning: Could not initialize PluginManager: {:?}", e);
+            }
+        }
+    }
+
     coordinator.run(event_rx, shutdown_rx);
 
     // 5. Clean Shutdown

@@ -581,6 +581,7 @@ version = "0.1.0"
 dependencies = [
  "bit_sr_core",
  "bit_sr_platform_windows",
+ "bit_sr_plugin",
  "bit_sr_speech",
  "bit_sr_ui",
  "bit_sr_web",

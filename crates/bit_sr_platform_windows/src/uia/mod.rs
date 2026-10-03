@@ -75,19 +75,19 @@ impl UiaClient {
                 FocusChangedHandler::new(raw_tx.clone()).into();
             client.AddFocusChangedEventHandler(&cache_request, &focus_handler)?;
 
-            // Register PropertyChangedEventHandler for Subtree using native array
+            // Register PropertyChangedEventHandler scoped to depth 1 to prevent desktop freezing (Invariant 3)
             let root = client.GetRootElementBuildCache(&cache_request)?;
             let prop_handler: IUIAutomationPropertyChangedEventHandler =
                 PropertyChangedHandler::new(raw_tx.clone()).into();
             let properties = [UIA_NamePropertyId, UIA_ValueValuePropertyId, UIA_RangeValueValuePropertyId];
             if let Err(e) = client.AddPropertyChangedEventHandlerNativeArray(
                 &root,
-                TreeScope_Subtree,
+                TreeScope(TreeScope_Element.0 | TreeScope_Children.0),
                 &cache_request,
                 &prop_handler,
                 &properties,
             ) {
-                log::debug!("Subtree PropertyChangedEventHandler not supported on desktop root ({:?})", e);
+                log::debug!("Scoped PropertyChangedEventHandler not supported on desktop root ({:?})", e);
             }
 
             // Register NotificationEventHandler if supported (Windows 10 1709+)

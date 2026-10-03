@@ -17,6 +17,7 @@ pub struct FocusTracker {
     current_focus: Option<AccessibleNode>,
     current_window_title: Option<String>,
     current_process_id: Option<u32>,
+    window_changed_pending: bool,
 }
 
 impl FocusTracker {
@@ -25,6 +26,7 @@ impl FocusTracker {
             current_focus: None,
             current_window_title: None,
             current_process_id: None,
+            window_changed_pending: false,
         }
     }
 
@@ -37,27 +39,34 @@ impl FocusTracker {
         };
 
         if is_redundant {
-            return (FocusTransition::Redundant, self.current_focus.as_ref().unwrap());
+            if let Some(ref focus) = self.current_focus {
+                return (FocusTransition::Redundant, focus);
+            }
         }
 
-        let window_changed = if let (Some(prev_pid), Some(new_pid)) = (self.current_process_id, node.process_id) {
+        let pid_changed = if let (Some(prev_pid), Some(new_pid)) = (self.current_process_id, node.process_id) {
             prev_pid != new_pid
         } else {
             false
         };
 
+        let window_changed = self.window_changed_pending || pid_changed;
+        self.window_changed_pending = false;
+
         self.current_process_id = node.process_id;
         self.current_focus = Some(node);
+
+        let focus_ref = self.current_focus.as_ref().expect("focus node was just stored");
 
         if window_changed {
             (
                 FocusTransition::NewWindow {
                     window_title: self.current_window_title.clone(),
                 },
-                self.current_focus.as_ref().unwrap(),
+                focus_ref,
             )
         } else {
-            (FocusTransition::NewElement, self.current_focus.as_ref().unwrap())
+            (FocusTransition::NewElement, focus_ref)
         }
     }
 
@@ -68,6 +77,7 @@ impl FocusTracker {
         if let Some(pid) = window_node.process_id {
             self.current_process_id = Some(pid);
         }
+        self.window_changed_pending = true;
         title
     }
 
@@ -91,6 +101,7 @@ impl FocusTracker {
         self.current_focus = None;
         self.current_window_title = None;
         self.current_process_id = None;
+        self.window_changed_pending = false;
     }
 }
 
@@ -131,5 +142,52 @@ mod tests {
         };
         let (t3, _) = tracker.on_focus(node2);
         assert_eq!(t3, FocusTransition::NewElement);
+    }
+
+    #[test]
+    fn test_same_pid_window_activation() {
+        let mut tracker = FocusTracker::new();
+        let win1 = AccessibleNode {
+            id: NodeId(1),
+            name: Some("Document 1 - Notepad".to_string()),
+            process_id: Some(999),
+            ..Default::default()
+        };
+        let node1 = AccessibleNode {
+            id: NodeId(2),
+            name: Some("Editor 1".to_string()),
+            process_id: Some(999),
+            ..Default::default()
+        };
+        tracker.on_window_activated(&win1);
+        let (t1, _) = tracker.on_focus(node1);
+        assert_eq!(
+            t1,
+            FocusTransition::NewWindow {
+                window_title: Some("Document 1 - Notepad".to_string())
+            }
+        );
+
+        // Switch to Window 2 of same process 999
+        let win2 = AccessibleNode {
+            id: NodeId(10),
+            name: Some("Document 2 - Notepad".to_string()),
+            process_id: Some(999),
+            ..Default::default()
+        };
+        let node2 = AccessibleNode {
+            id: NodeId(20),
+            name: Some("Editor 2".to_string()),
+            process_id: Some(999),
+            ..Default::default()
+        };
+        tracker.on_window_activated(&win2);
+        let (t2, _) = tracker.on_focus(node2);
+        assert_eq!(
+            t2,
+            FocusTransition::NewWindow {
+                window_title: Some("Document 2 - Notepad".to_string())
+            }
+        );
     }
 }

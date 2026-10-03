@@ -49,6 +49,33 @@ impl TreeNavigator {
         }
     }
 
+    /// Climbs up the tree from `start` to find the enclosing web document or root container.
+    pub fn find_enclosing_document(&self, start: &IUIAutomationElement) -> IUIAutomationElement {
+        let mut current = start.clone();
+        let mut document_candidate = start.clone();
+
+        for _ in 0..25 {
+            if let Some(parent) = self.get_parent(&current) {
+                let node = crate::uia::UiaElement::new(parent.clone()).to_accessible_node();
+                if node.is_web_document() || node.role == bit_sr_core::Role::Document {
+                    document_candidate = parent.clone();
+                } else if node
+                    .class_name
+                    .as_deref()
+                    .map(|c| c.contains("Chrome_RenderWidgetHost") || c.contains("MozillaContentWindowClass"))
+                    .unwrap_or(false)
+                {
+                    document_candidate = parent.clone();
+                    break;
+                }
+                current = parent;
+            } else {
+                break;
+            }
+        }
+        document_candidate
+    }
+
     /// Recursively harvests an in-memory AccessibilityTree scoped to `root_element`.
     /// Strictly limits traversal depth and maximum node count to prevent freezing (Invariant 3).
     pub fn harvest_subtree(

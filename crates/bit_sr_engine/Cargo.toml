@@ -7,6 +7,7 @@ description = "Core screen reader engine coordinator, speech formatter, and even
 
 [dependencies]
 bit_sr_core = { path = "../bit_sr_core" }
+bit_sr_plugin = { path = "../bit_sr_plugin", optional = true }
 bit_sr_speech = { path = "../bit_sr_speech" }
 bit_sr_ui = { path = "../bit_sr_ui" }
 bit_sr_web = { path = "../bit_sr_web" }
@@ -14,6 +15,10 @@ crossbeam-channel = "0.5"
 log = "0.4"
 env_logger = "0.11"
 ctrlc = "3.4"
+
+[features]
+default = ["plugins"]
+plugins = ["dep:bit_sr_plugin"]
 
 [target.'cfg(windows)'.dependencies]
 bit_sr_platform_windows = { path = "../bit_sr_platform_windows" }
