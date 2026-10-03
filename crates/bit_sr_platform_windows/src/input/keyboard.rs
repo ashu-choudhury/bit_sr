@@ -34,6 +34,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 static IS_RUNNING: AtomicBool = AtomicBool::new(false);
 static INPUT_HELP_ACTIVE: AtomicBool = AtomicBool::new(false);
+static BROWSE_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static CURRENT_MODIFIERS: AtomicU32 = AtomicU32::new(0);
 
 static CONFIG_USE_CAPSLOCK: AtomicBool = AtomicBool::new(true);
@@ -78,6 +79,16 @@ pub fn set_input_help_active(active: bool) {
 /// Checks if input help mode is active.
 pub fn is_input_help_active() -> bool {
     INPUT_HELP_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Activates or deactivates Browse Mode key interception in the low-level hook.
+pub fn set_browse_mode_active(active: bool) {
+    BROWSE_MODE_ACTIVE.store(active, Ordering::SeqCst);
+}
+
+/// Checks if Browse Mode key interception is currently active.
+pub fn is_browse_mode_active() -> bool {
+    BROWSE_MODE_ACTIVE.load(Ordering::SeqCst)
 }
 
 const LLKHF_EXTENDED: u32 = 0x01;
@@ -509,9 +520,18 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
             CURRENT_MODIFIERS.store(modifiers.bits(), Ordering::Relaxed);
 
-            // Instantly signal speech interrupt on physical Control or Escape press
+            // Instantly signal speech interrupt on any physical key down (except pure modifier keys)
             if action == KeyAction::Down
-                && (key == Key::LeftControl || key == Key::RightControl || key == Key::Escape)
+                && !matches!(
+                    key,
+                    Key::LeftShift
+                        | Key::RightShift
+                        | Key::LeftAlt
+                        | Key::RightAlt
+                        | Key::LeftSuper
+                        | Key::RightSuper
+                        | Key::CapsLock
+                )
             {
                 let _ = state.tx.try_send(AccessibilityEvent::SpeechInterrupt);
             }
@@ -536,6 +556,34 @@ unsafe extern "system" fn low_level_keyboard_proc(
             // Intercept all keys in input help mode
             if INPUT_HELP_ACTIVE.load(Ordering::Relaxed) {
                 return true;
+            }
+
+            // Intercept Browse Mode navigation and quick-nav keys
+            if BROWSE_MODE_ACTIVE.load(Ordering::Relaxed) {
+                let is_nav = matches!(
+                    key,
+                    Key::UpArrow
+                        | Key::DownArrow
+                        | Key::LeftArrow
+                        | Key::RightArrow
+                        | Key::Home
+                        | Key::End
+                        | Key::PageUp
+                        | Key::PageDown
+                );
+                let is_quick_nav = (!modifiers.contains(KeyModifiers::ALT)
+                    && !modifiers.contains(KeyModifiers::SUPER)
+                    && !modifiers.contains(KeyModifiers::CONTROL))
+                    && matches!(
+                        key,
+                        Key::H | Key::K | Key::T | Key::F | Key::B | Key::C | Key::E | Key::G
+                            | Key::I | Key::L | Key::M | Key::O | Key::P | Key::Q | Key::R
+                            | Key::U | Key::V | Key::W | Key::X | Key::D | Key::Num1
+                            | Key::Num2 | Key::Num3 | Key::Num4 | Key::Num5 | Key::Num6
+                    );
+                if is_nav || is_quick_nav {
+                    return true;
+                }
             }
 
             // Intercept physical numpad review keys when NumLock is OFF

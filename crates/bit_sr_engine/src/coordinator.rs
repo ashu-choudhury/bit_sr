@@ -29,6 +29,8 @@ pub struct EngineCoordinator {
     pub tree_provider: Option<std::sync::Arc<dyn bit_sr_core::tree::TreeProvider>>,
     pub review_cursor: bit_sr_core::text::ReviewCursor,
     pub last_review_cmd: Option<(ScreenReaderCommand, std::time::Instant, u32)>,
+    #[cfg(feature = "plugins")]
+    pub plugin_manager: Option<std::sync::Arc<bit_sr_plugin::PluginManager>>,
 }
 
 impl EngineCoordinator {
@@ -51,6 +53,8 @@ impl EngineCoordinator {
             tree_provider: None,
             review_cursor: bit_sr_core::text::ReviewCursor::new(),
             last_review_cmd: None,
+            #[cfg(feature = "plugins")]
+            plugin_manager: None,
         }
     }
 
@@ -72,12 +76,20 @@ impl EngineCoordinator {
             tree_provider: None,
             review_cursor: bit_sr_core::text::ReviewCursor::new(),
             last_review_cmd: None,
+            #[cfg(feature = "plugins")]
+            plugin_manager: None,
         }
     }
 
     /// Sets the UI handle for coordinating GUI windows and menus.
     pub fn set_ui_handle(&mut self, ui_handle: bit_sr_ui::UiHandle) {
         self.ui_handle = Some(ui_handle);
+    }
+
+    #[cfg(feature = "plugins")]
+    /// Sets the active WebAssembly plugin manager.
+    pub fn set_plugin_manager(&mut self, pm: std::sync::Arc<bit_sr_plugin::PluginManager>) {
+        self.plugin_manager = Some(pm);
     }
 
     /// Sets the event sender for dispatching asynchronous platform events.
@@ -102,11 +114,16 @@ impl EngineCoordinator {
 
     /// Sets the active web controller for web documents and webviews.
     pub fn set_web_controller(&mut self, controller: bit_sr_web::WebController) {
+        #[cfg(windows)]
+        bit_sr_platform_windows::set_browse_mode_active(controller.mode() == bit_sr_web::NavigationMode::Browse);
         self.web_controller = Some(controller);
     }
 
     /// Sets the active virtual buffer for web documents.
     pub fn set_web_buffer(&mut self, buffer: bit_sr_web::VirtualBuffer) {
+        let is_browse = buffer.mode == bit_sr_web::NavigationMode::Browse;
+        #[cfg(windows)]
+        bit_sr_platform_windows::set_browse_mode_active(is_browse);
         self.web_controller = Some(bit_sr_web::WebController::new(buffer));
     }
 
@@ -248,6 +265,8 @@ impl EngineCoordinator {
                                 return EngineAction::Spoke(text);
                             }
                             bit_sr_web::WebAction::SwitchMode(mode) => {
+                                #[cfg(windows)]
+                                bit_sr_platform_windows::set_browse_mode_active(mode == bit_sr_web::NavigationMode::Browse);
                                 let msg = match mode {
                                     bit_sr_web::NavigationMode::Browse => self.loc.t("web.browse_mode"),
                                     bit_sr_web::NavigationMode::Focus => self.loc.t("web.focus_mode"),
@@ -289,7 +308,6 @@ impl EngineCoordinator {
                     match key.key {
                         bit_sr_core::input::Key::UpArrow | bit_sr_core::input::Key::DownArrow => {
                             if let Some(ref provider) = self.text_provider {
-                                std::thread::sleep(std::time::Duration::from_millis(5));
                                 let unit = if key.modifiers == bit_sr_core::input::KeyModifiers::CONTROL {
                                     bit_sr_core::TextUnit::Paragraph
                                 } else {
@@ -316,8 +334,7 @@ impl EngineCoordinator {
                         bit_sr_core::input::Key::LeftArrow | bit_sr_core::input::Key::RightArrow => {
                             if key.modifiers == bit_sr_core::input::KeyModifiers::CONTROL {
                                 if let Some(ref provider) = self.text_provider {
-                                    std::thread::sleep(std::time::Duration::from_millis(5));
-                                    if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Word) {
+                                        if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Word) {
                                         let announcement = if text.trim().is_empty() {
                                             self.loc.t("format.blank").to_string()
                                         } else {
@@ -329,8 +346,7 @@ impl EngineCoordinator {
                                 }
                             } else {
                                 if let Some(ref provider) = self.text_provider {
-                                    std::thread::sleep(std::time::Duration::from_millis(5));
-                                    if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Character) {
+                                        if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Character) {
                                         let announcement = if text.is_empty() || text == "\r" || text == "\n" || text == "\r\n" {
                                             self.loc.t("format.blank").to_string()
                                         } else if text == " " {
@@ -346,7 +362,6 @@ impl EngineCoordinator {
                         }
                         bit_sr_core::input::Key::Home => {
                             if let Some(ref provider) = self.text_provider {
-                                std::thread::sleep(std::time::Duration::from_millis(5));
                                 if key.modifiers == bit_sr_core::input::KeyModifiers::CONTROL {
                                     // Document start: read line
                                     if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Line) {
@@ -385,7 +400,6 @@ impl EngineCoordinator {
                         }
                         bit_sr_core::input::Key::End => {
                             if let Some(ref provider) = self.text_provider {
-                                std::thread::sleep(std::time::Duration::from_millis(5));
                                 if key.modifiers == bit_sr_core::input::KeyModifiers::CONTROL {
                                     // Document end: read line
                                     if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Line) {
@@ -424,7 +438,6 @@ impl EngineCoordinator {
                         }
                         bit_sr_core::input::Key::PageUp | bit_sr_core::input::Key::PageDown => {
                             if let Some(ref provider) = self.text_provider {
-                                std::thread::sleep(std::time::Duration::from_millis(5));
                                 if let Some(text) = provider.get_text_at_caret(bit_sr_core::TextUnit::Line) {
                                     let announcement = if text.trim().is_empty() {
                                         self.loc.t("format.blank").to_string()
@@ -438,7 +451,6 @@ impl EngineCoordinator {
                         }
                         bit_sr_core::input::Key::Delete => {
                             if let Some(ref provider) = self.text_provider {
-                                std::thread::sleep(std::time::Duration::from_millis(5));
                                 let unit = if key.modifiers == bit_sr_core::input::KeyModifiers::CONTROL {
                                     bit_sr_core::TextUnit::Word
                                 } else {
@@ -575,9 +587,11 @@ impl EngineCoordinator {
                 if !focused_node.is_web_content {
                     // Normal GUI control: deactivate WebController so Browse Mode and key interception never occur.
                     self.web_controller = None;
+                    #[cfg(windows)]
+                    bit_sr_platform_windows::set_browse_mode_active(false);
                 } else {
                     // Focus is inside a WebView / web document
-                    if self.web_controller.is_none() && focused_node.is_web_document() {
+                    if self.web_controller.is_none() && (focused_node.is_web_content || focused_node.is_web_document()) {
                         let buffer = if let Some(ref tp) = self.tree_provider {
                             if let Some(tree) = tp.harvest_tree(14, 1500) {
                                 bit_sr_web::Linearizer::compile(&tree, focused_node.id)
@@ -591,6 +605,9 @@ impl EngineCoordinator {
                             b.title = focused_node.name.clone();
                             b
                         };
+                        let is_browse = buffer.mode == bit_sr_web::NavigationMode::Browse;
+                        #[cfg(windows)]
+                        bit_sr_platform_windows::set_browse_mode_active(is_browse);
                         self.web_controller = Some(bit_sr_web::WebController::new(buffer));
                     }
 
@@ -599,6 +616,8 @@ impl EngineCoordinator {
                         let web_actions = wc.handle_focus_change(focused_node);
                         for action in web_actions {
                             if let bit_sr_web::WebAction::SwitchMode(mode) = action {
+                                #[cfg(windows)]
+                                bit_sr_platform_windows::set_browse_mode_active(mode == bit_sr_web::NavigationMode::Browse);
                                 let mode_msg = match mode {
                                     bit_sr_web::NavigationMode::Browse => self.loc.t("web.browse_mode"),
                                     bit_sr_web::NavigationMode::Focus => self.loc.t("web.focus_mode"),
@@ -621,6 +640,8 @@ impl EngineCoordinator {
                 self.last_selection = None;
                 if !node.is_web_content {
                     self.web_controller = None;
+                    #[cfg(windows)]
+                    bit_sr_platform_windows::set_browse_mode_active(false);
                 }
                 let title = self.focus_tracker.on_window_activated(&node);
                 if let Some(t) = title {
@@ -668,7 +689,6 @@ impl EngineCoordinator {
     /// Detects and announces changes in text selection.
     fn handle_selection_change(&mut self, is_select_all: bool) -> EngineAction {
         if let Some(ref provider) = self.text_provider {
-            std::thread::sleep(std::time::Duration::from_millis(25));
             let new_sel = provider.get_selected_text();
             let old_sel = self.last_selection.clone();
 
@@ -874,6 +894,10 @@ impl EngineCoordinator {
                     }
                     let actions = wc.toggle_mode();
                     for action in actions {
+                        if let bit_sr_web::WebAction::SwitchMode(mode) = action {
+                            #[cfg(windows)]
+                            bit_sr_platform_windows::set_browse_mode_active(mode == bit_sr_web::NavigationMode::Browse);
+                        }
                         if let bit_sr_web::WebAction::Speak(ref msg) = action {
                             let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
                             return EngineAction::Spoke(msg.clone());

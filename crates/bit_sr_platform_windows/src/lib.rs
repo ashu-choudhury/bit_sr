@@ -19,7 +19,8 @@ pub use common_controls::{EditControlReader, SysListView32Reader};
 pub use desktop::{get_foreground_window_title, get_user_default_locale_name, is_secure_desktop_active};
 pub use error::{Error, Result};
 pub use input::{
-    get_current_modifiers, is_input_help_active, set_input_help_active, KeyboardHookHandle,
+    get_current_modifiers, is_browse_mode_active, is_input_help_active, set_browse_mode_active,
+    set_input_help_active, KeyboardHookHandle,
 };
 pub use menu::{open_menu_async, show_native_popup_menu};
 pub use msaa::{MsaaElement, WinEventHookHandle};
@@ -132,7 +133,8 @@ impl bit_sr_core::tree::TreeProvider for WindowsTreeProvider {
     fn harvest_tree(&self, max_depth: usize, max_nodes: usize) -> Option<bit_sr_core::tree::AccessibilityTree> {
         let nav = self.uia.control_view_navigator().ok()?;
         let focused = self.uia.get_focused_element().ok()?;
-        Some(nav.harvest_subtree(focused.raw(), max_depth, max_nodes))
+        let doc_root = nav.find_enclosing_document(focused.raw());
+        Some(nav.harvest_subtree(&doc_root, max_depth, max_nodes))
     }
 }
 
