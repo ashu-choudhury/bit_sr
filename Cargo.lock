@@ -598,6 +598,7 @@ version = "0.1.0"
 dependencies = [
  "bit_sr_core",
  "bitflags 2.13.2",
+ "cc",
  "crossbeam-channel",
  "log",
  "regex",

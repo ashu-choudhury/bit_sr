@@ -61,6 +61,15 @@ pub enum AccessibilityEvent {
     /// Instant speech cancellation requested by keypress.
     SpeechInterrupt,
 
+    /// External application requested speech (e.g., NVDA Controller Client).
+    ExternalSpeech {
+        text: String,
+        interrupt: bool,
+    },
+
+    /// External application requested speech cancellation.
+    ExternalSpeechCancel,
+
     /// Screen reader action triggered from a menu or tray.
     MenuAction(crate::menu::MenuAction),
 }

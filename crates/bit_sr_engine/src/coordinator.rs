@@ -140,6 +140,24 @@ impl EngineCoordinator {
                 EngineAction::Interrupted
             }
 
+            AccessibilityEvent::ExternalSpeech { text, interrupt } => {
+                if self.command_dispatcher.speech_mode == SpeechMode::Mute {
+                    return EngineAction::None;
+                }
+                let priority = if interrupt {
+                    SpeechPriority::Now
+                } else {
+                    SpeechPriority::Next
+                };
+                let _ = self.speech_hub.speak(&text, priority);
+                EngineAction::Spoke(text)
+            }
+
+            AccessibilityEvent::ExternalSpeechCancel => {
+                let _ = self.speech_hub.interrupt();
+                EngineAction::Interrupted
+            }
+
             AccessibilityEvent::CapsLockToggled(is_on) => {
                 let msg = if is_on {
                     self.loc.t("system.capslock_on")

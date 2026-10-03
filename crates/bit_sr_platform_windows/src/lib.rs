@@ -9,6 +9,7 @@ pub mod error;
 pub mod input;
 pub mod menu;
 pub mod msaa;
+pub mod nvda_compat;
 pub mod text;
 pub mod uia;
 pub mod watchdog;
@@ -24,6 +25,7 @@ pub use input::{
 };
 pub use menu::{open_menu_async, show_native_popup_menu};
 pub use msaa::{MsaaElement, WinEventHookHandle};
+pub use nvda_compat::NvdaControllerServer;
 pub use text::WindowsTextProvider;
 pub use uia::{create_base_cache_request, Patterns, TreeNavigator, UiaClient, UiaElement};
 pub use watchdog::{is_window_hung, safe_send_message_timeout};
@@ -34,12 +36,13 @@ use std::sync::Arc;
 
 /// Master platform coordinator for Windows.
 /// Manages the low-level keyboard hook thread, WinEvent MSAA hook thread,
-/// and the dedicated UI Automation MTA worker thread.
+/// dedicated UI Automation MTA worker thread, and NVDA controller client LRPC server.
 pub struct WindowsPlatform {
     com_guard: Option<com::ComGuard>,
     keyboard_hook: Option<KeyboardHookHandle>,
     msaa_hook: Option<WinEventHookHandle>,
     uia_client: Option<Arc<UiaClient>>,
+    nvda_server: Option<NvdaControllerServer>,
     explorer_filter: Arc<ExplorerFilter>,
 }
 
@@ -62,7 +65,17 @@ impl WindowsPlatform {
 
         // 4. Initialize Microsoft UI Automation client
         log::info!("Starting Microsoft UI Automation client...");
-        let uia_client = Arc::new(UiaClient::new(tx, explorer_filter.clone())?);
+        let uia_client = Arc::new(UiaClient::new(tx.clone(), explorer_filter.clone())?);
+
+        // 5. Initialize NVDA Controller Client compatibility LRPC server
+        log::info!("Starting NVDA Controller LRPC compatibility server...");
+        let nvda_server = match NvdaControllerServer::start(tx) {
+            Ok(server) => Some(server),
+            Err(e) => {
+                log::warn!("Could not start NVDA Controller LRPC server: {:?}", e);
+                None
+            }
+        };
 
         // If foreground window is Chromium/Edge/WebView2, elevate its AXMode immediately
         unsafe {
@@ -80,6 +93,7 @@ impl WindowsPlatform {
             keyboard_hook: Some(keyboard_hook),
             msaa_hook: Some(msaa_hook),
             uia_client: Some(uia_client),
+            nvda_server,
             explorer_filter,
         })
     }
@@ -120,6 +134,7 @@ impl WindowsPlatform {
         if let Some(uia) = self.uia_client.take() {
             uia.remove_all_event_handlers();
         }
+        let _ = self.nvda_server.take();
         let _ = self.com_guard.take();
     }
 }
