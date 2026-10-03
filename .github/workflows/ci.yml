@@ -1,0 +1,117 @@
+name: CI & Bleeding-Edge Release
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-test:
+    name: Build, Test & Release (Windows x86_64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check workspace
+        run: cargo check --workspace --all-targets
+
+      - name: Run workspace tests
+        run: cargo test --workspace --verbose
+
+      - name: Build release binary
+        run: cargo build --release --bin bit_sr
+
+      - name: Package release artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging
+          Copy-Item target/release/bit_sr.exe -Destination staging/
+          if (Test-Path README.md) { Copy-Item README.md -Destination staging/ }
+          if (Test-Path LICENSE-APACHE) { Copy-Item LICENSE-APACHE -Destination staging/ }
+          if (Test-Path LICENSE-MIT) { Copy-Item LICENSE-MIT -Destination staging/ }
+
+          # Create release zip archive
+          Compress-Archive -Path staging/* -DestinationPath bit_sr-windows-x86_64.zip -Force
+
+          # Generate SHA256 checksum
+          $hash = (Get-FileHash -Algorithm SHA256 bit_sr-windows-x86_64.zip).Hash
+          "$hash  bit_sr-windows-x86_64.zip" | Out-File -Encoding utf8 bit_sr-windows-x86_64.zip.sha256
+
+          # Create commit-pinned archive and checksum
+          Copy-Item bit_sr-windows-x86_64.zip -Destination "bit_sr-windows-x86_64-${{ github.sha }}.zip"
+          "$hash  bit_sr-windows-x86_64-${{ github.sha }}.zip" | Out-File -Encoding utf8 "bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bit_sr-windows-x86_64
+          path: |
+            bit_sr-windows-x86_64.zip
+            bit_sr-windows-x86_64.zip.sha256
+            bit_sr-windows-x86_64-${{ github.sha }}.zip
+            bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256
+          if-no-files-found: error
+
+      - name: Update bleeding-edge git tag
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f bleeding-edge ${{ github.sha }}
+          git push -f origin bleeding-edge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish bleeding-edge release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: bleeding-edge
+          name: "Bleeding Edge (Development Build)"
+          prerelease: true
+          make_latest: false
+          files: |
+            bit_sr-windows-x86_64.zip
+            bit_sr-windows-x86_64.zip.sha256
+            bit_sr-windows-x86_64-${{ github.sha }}.zip
+            bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256
+          body: |
+            ## ⚠️ Bleeding-Edge Development Build
+
+            This is an automated continuous release built directly from the latest commit on `${{ github.ref_name }}`.
+
+            ### Build Metadata
+            - **Commit SHA**: [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+            - **Branch / Ref**: `${{ github.ref_name }}`
+            - **Triggered By**: `${{ github.actor }}`
+            - **Workflow Run**: [Run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ### Download Artifacts
+            - **`bit_sr-windows-x86_64.zip`**: Latest standalone portable package for Windows (x86_64)
+            - **`bit_sr-windows-x86_64.zip.sha256`**: SHA256 checksum for verification
+            - **`bit_sr-windows-x86_64-${{ github.sha }}.zip`**: Commit-pinned release archive
+            - **`bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256`**: Checksum for the commit-pinned archive
+
+            > **Warning**: Bleeding-edge builds reflect active development and may be incomplete or experimental.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
