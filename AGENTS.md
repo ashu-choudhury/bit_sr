@@ -56,6 +56,18 @@ Before implementing or modifying platform-specific features, consult the self-co
 * On any physical key down that is not a pure modifier, the keyboard hook must dispatch `AccessibilityEvent::SpeechInterrupt`.
 * All speech drivers must implement immediate audio purge (e.g., `SPF_PURGEBEFORESPEAK` in SAPI 5).
 
+### Invariant 6: Synchronous Browse Mode Interception
+* In web documents and virtual buffers, Browse Mode navigation and single-letter quick-nav keystrokes (`H`, `K`, `B`, `F`, `T`, `1`-`6`, arrows, `Space`, etc.) must be intercepted synchronously within the low-level keyboard hook callback (`WH_KEYBOARD_LL`) via atomic state inspection (`is_browse_mode_active()`).
+* Keystrokes meant for screen reader buffer navigation must never leak into web browsers, web forms, or OS windows.
+
+### Invariant 7: Document-Root Virtual Buffer Tree Harvesting
+* Virtual buffer harvesting must never be restricted to the currently focused leaf node.
+* When web content is focused, the platform tree harvester must ascend ancestor containers up to the enclosing `Document` / `UIA_DocumentControlTypeId` / WebArea root and harvest the virtual buffer downwards to ensure complete document context.
+
+### Invariant 8: Zero Synthetic Latency
+* The coordinator event loop, focus tracker, and tree providers must never introduce blocking delays or synthetic sleeps (e.g., `thread::sleep`).
+* Responsiveness and low latency are foundational screen reader requirements.
+
 ---
 
 ## 3. Workspace Structure & Crate Ownership
@@ -95,12 +107,11 @@ Before committing any changes:
 # 1. Run all workspace unit tests (must pass with 0 failures)
 cargo test --workspace
 
-# 2. Check all examples and binaries compile with 0 warnings
-cargo check --workspace --examples --bins
-
-# 3. Test the live prototype
-cargo run --release --bin bit_sr
+# 2. Check all targets, examples, and binaries compile with 0 warnings
+cargo check --workspace --all-targets
 ```
+
+> **Cloud-First Release Builds:** Do not run heavy release compilation (`cargo build --release`) on local contributor machines. Full binary optimization, packaging, and release publishing are handled entirely in the cloud by the GitHub Actions CI/CD pipeline on every push.
 
 ---
 
@@ -112,3 +123,21 @@ Follow Conventional Commits:
 * `perf(...)`: Latency and memory optimizations
 * `docs(...)`: Documentation updates
 * `refactor(...)`: Internal code improvements without behavioral changes
+* `ci(...)`: CI/CD workflows and release automation
+
+---
+
+## 7. Upstream Contribution & Branching Conventions
+
+1. **Target Upstream Directly:**
+   - All Pull Requests must target the upstream repository (`ashu-choudhury/bit_sr`) with base branch `master`.
+   - Do not submit pull requests targeting personal forks.
+2. **Single-Branch Working Model (`main`):**
+   - Perform all active development, bug fixes, and documentation directly on the local `main` branch.
+   - Avoid creating multiple sprawling feature branches for small fixes. Commit clearly to `main`, push to `origin/main`, and open pull requests against `upstream/master`.
+3. **Automated Bleeding-Edge Releases:**
+   - Every push to the repository triggers the GitHub Actions CI/CD workflow (`.github/workflows/ci.yml`).
+   - The workflow compiles the release binary on Windows x86_64, creates zipped standalone packages with SHA256 hashes, updates the `bleeding-edge` git tag, and publishes the pre-release automatically.
+4. **Communication Language:**
+   - All documentation, commit messages, PR descriptions, and discussions must strictly be in English (`en`).
+
