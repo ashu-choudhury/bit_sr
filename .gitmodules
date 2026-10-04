@@ -4,3 +4,6 @@
 [submodule "references/nvda"]
 	path = references/nvda
 	url = https://github.com/nvaccess/nvda.git
+[submodule "references/talkback"]
+	path = references/talkback
+	url = https://github.com/google/talkback.git

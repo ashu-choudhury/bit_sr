@@ -10,6 +10,7 @@ Welcome to `bit_sr`. This document specifies the architectural rules, reference 
 To inspect how mature screen readers interact with operating systems and accessibility APIs, `bit_sr` vendors upstream reference codebases as Git submodules in the `references/` directory:
 * **NVDA (Windows reference):** [`references/nvda`](references/nvda) — Windows UIA, MSAA, IAccessible2, display model, and synthesizer handling.
 * **Orca (Linux reference):** [`references/orca`](references/orca) — AT-SPI2 D-Bus protocol, speech-dispatcher, and GNOME/Nautilus integration.
+* **TalkBack (Android reference):** [`references/talkback`](references/talkback) — AOSP accessibility service, touch exploration, gesture dispatch, and focus management.
 
 When initializing or cloning the repository for the first time, always populate these reference submodules:
 ```powershell
