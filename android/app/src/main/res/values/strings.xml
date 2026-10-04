@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">bit_sr</string>
+    <string name="accessibility_service_name">bit_sr Screen Reader</string>
+    <string name="accessibility_service_description">High-performance native screen reader for blind and low-vision users, powered by bit_sr Rust engine with ultra-low latency direct touch exploration.</string>
+    <string name="accessibility_service_summary">Native ultra-fast screen reader for visually impaired users</string>
+    <string name="settings_title">bit_sr Settings</string>
+</resources>

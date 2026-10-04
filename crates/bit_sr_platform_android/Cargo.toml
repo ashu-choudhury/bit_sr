@@ -1,0 +1,20 @@
+[package]
+name = "bit_sr_platform_android"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Ultra-low-latency native Android accessibility platform backend for bit_sr"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bit_sr_core = { path = "../bit_sr_core" }
+bit_sr_engine = { path = "../bit_sr_engine" }
+bit_sr_speech = { path = "../bit_sr_speech" }
+jni = { version = "0.21", default-features = false }
+log = "0.4"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+
+[dev-dependencies]

@@ -8,6 +8,7 @@ members = [
     "crates/bit_sr_plugin",
     "crates/bit_sr_ui",
     "crates/bit_sr_web",
+    "crates/bit_sr_platform_android",
 ]
 
 [workspace.package]
