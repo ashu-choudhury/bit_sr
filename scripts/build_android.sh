@@ -37,8 +37,8 @@ if [ ! -d "${TOOLCHAIN_BIN}" ]; then
 fi
 
 # 2. Compile native libraries
-TARGETS=("aarch64-linux-android" "x86_64-linux-android")
-ABIS=("arm64-v8a" "x86_64")
+TARGETS=("aarch64-linux-android" "armv7-linux-androideabi" "x86_64-linux-android")
+ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
 
 for i in "${!TARGETS[@]}"; do
     TARGET="${TARGETS[$i]}"
@@ -50,6 +50,11 @@ for i in "${!TARGETS[@]}"; do
         export CC_aarch64_linux_android="${TOOLCHAIN_BIN}/aarch64-linux-android28-clang"
         export CXX_aarch64_linux_android="${TOOLCHAIN_BIN}/aarch64-linux-android28-clang++"
         export AR_aarch64_linux_android="${TOOLCHAIN_BIN}/llvm-ar"
+    elif [ "${TARGET}" == "armv7-linux-androideabi" ]; then
+        export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="${TOOLCHAIN_BIN}/armv7a-linux-androideabi28-clang"
+        export CC_armv7_linux_androideabi="${TOOLCHAIN_BIN}/armv7a-linux-androideabi28-clang"
+        export CXX_armv7_linux_androideabi="${TOOLCHAIN_BIN}/armv7a-linux-androideabi28-clang++"
+        export AR_armv7_linux_androideabi="${TOOLCHAIN_BIN}/llvm-ar"
     else
         export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${TOOLCHAIN_BIN}/x86_64-linux-android28-clang"
         export CC_x86_64_linux_android="${TOOLCHAIN_BIN}/x86_64-linux-android28-clang"

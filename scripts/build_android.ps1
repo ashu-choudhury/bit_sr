@@ -8,7 +8,7 @@
 
 param(
     [switch]$Release = $false,
-    [string[]]$Abis = @("arm64-v8a", "x86_64")
+    [string[]]$Abis = @("arm64-v8a", "armeabi-v7a", "x86_64")
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,6 +72,19 @@ foreach ($Abi in $Abis) {
         $env:CC_aarch64_linux_android = $ClangCmd
         $env:CXX_aarch64_linux_android = $ClangPlusCmd
         $env:AR_aarch64_linux_android = $ArCmd
+    } elseif ($Abi -eq "armeabi-v7a") {
+        $Target = "armv7-linux-androideabi"
+        $ClangCmd = Join-Path $LlvmBin "armv7a-linux-androideabi28-clang.cmd"
+        if (-not (Test-Path $ClangCmd)) { $ClangCmd = Join-Path $LlvmBin "armv7a-linux-androideabi28-clang" }
+        $ClangPlusCmd = Join-Path $LlvmBin "armv7a-linux-androideabi28-clang++.cmd"
+        if (-not (Test-Path $ClangPlusCmd)) { $ClangPlusCmd = Join-Path $LlvmBin "armv7a-linux-androideabi28-clang++" }
+        $ArCmd = Join-Path $LlvmBin "llvm-ar.exe"
+        if (-not (Test-Path $ArCmd)) { $ArCmd = Join-Path $LlvmBin "llvm-ar" }
+
+        $env:CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER = $ClangCmd
+        $env:CC_armv7_linux_androideabi = $ClangCmd
+        $env:CXX_armv7_linux_androideabi = $ClangPlusCmd
+        $env:AR_armv7_linux_androideabi = $ArCmd
     } elseif ($Abi -eq "x86_64") {
         $Target = "x86_64-linux-android"
         $ClangCmd = Join-Path $LlvmBin "x86_64-linux-android28-clang.cmd"
