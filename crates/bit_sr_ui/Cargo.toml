@@ -7,7 +7,8 @@ description = "Accessible native Slint GUI, left-side screen reader menu, and se
 
 [dependencies]
 bit_sr_core = { path = "../bit_sr_core" }
-slint = { version = "1.18", default-features = true }
+slint = { version = "1.18", default-features = false, features = ["std", "renderer-software", "compat-1-18"] }
+i-slint-core = { version = "1.18", default-features = false, features = ["image-decoders", "svg"] }
 crossbeam-channel = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"

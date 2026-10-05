@@ -1,12 +1,54 @@
 package org.bitsr.screenreader
 
+import android.util.Log
+
 /**
  * High-performance, zero-allocation native JNI bridge connecting
- * Android AccessibilityService and input events directly to the Rust engine.
+ * Android AccessibilityService and input events directly to the unified Rust engine (`libbit_sr.so`).
  */
 object NativeBridge {
+    private const val TAG = "BitSrNativeBridge"
+
     init {
-        System.loadLibrary("bit_sr_platform_android")
+        try {
+            System.loadLibrary("bit_sr")
+            Log.i(TAG, "Successfully loaded libbit_sr.so")
+        } catch (e: UnsatisfiedLinkError) {
+            try {
+                System.loadLibrary("bit_sr_platform_android")
+                Log.i(TAG, "Successfully loaded fallback libbit_sr_platform_android.so")
+            } catch (fallbackError: UnsatisfiedLinkError) {
+                Log.e(TAG, "Failed to load native screen reader library", fallbackError)
+            }
+        }
+    }
+
+    /**
+     * Callback interface implemented by BitSrAccessibilityService to receive
+     * audio and action requests from the native Rust engine.
+     */
+    interface HostCallback {
+        fun onSpeakText(text: String, interrupt: Boolean)
+        fun onPerformAction(actionId: Int, targetNodeId: Long): Boolean
+    }
+
+    @Volatile
+    var hostCallback: HostCallback? = null
+
+    /**
+     * Invoked from native Rust engine (`AndroidTtsDriver`) to speak formatted text or interrupt speech.
+     */
+    @JvmStatic
+    fun speakText(text: String, interrupt: Boolean) {
+        hostCallback?.onSpeakText(text, interrupt)
+    }
+
+    /**
+     * Invoked from native Rust engine (`AndroidActionPerformer`) to perform accessibility actions.
+     */
+    @JvmStatic
+    fun performAction(actionId: Int, targetNodeId: Long): Boolean {
+        return hostCallback?.onPerformAction(actionId, targetNodeId) ?: false
     }
 
     /**

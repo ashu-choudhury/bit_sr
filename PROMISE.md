@@ -189,13 +189,13 @@ Android OS (Zygote / ART Runtime)
 ### Phase 1: Engine Restructuring & Android Target Wiring
 * [x] Reorganize `bit_sr_platform_android` into clean modular subsystems (`tree/`, `input/`, `feedback/`, `apps/`, `platform.rs`).
 * [x] Eliminate obsolete AOSP `gestures.rs` and consolidate `SwipeDirection` into `touch.rs`.
-* [ ] Configure `crates/bit_sr_engine/Cargo.toml`:
+* [x] Configure `crates/bit_sr_engine/Cargo.toml`:
   * Add `[lib] name = "bit_sr" crate-type = ["cdylib", "rlib"]`.
   * Add `[target.'cfg(target_os = "android")'.dependencies]` linking `bit_sr_platform_android` and `jni = "0.21"`.
-* [ ] Ensure `bit_sr_engine` compiles cleanly for both desktop and Android targets with zero compiler warnings.
+* [x] Ensure `bit_sr_engine` compiles cleanly for both desktop and Android targets with zero compiler warnings.
 
 ### Phase 2: JNI Engine Coordination & Event Injection
-* [ ] Implement JNI exports in `bit_sr_engine` (e.g. `src/android_jni.rs` or unified module):
+* [x] Implement JNI exports in `bit_sr_engine` (e.g. `src/android_jni.rs` or unified module):
   * `Java_org_bitsr_screenreader_NativeBridge_initEngine`: Allocates and returns `EngineCoordinator`.
   * `Java_org_bitsr_screenreader_NativeBridge_destroyEngine`: Safely deallocates `EngineCoordinator`.
   * `Java_org_bitsr_screenreader_NativeBridge_onAccessibilityEvent`: Dispatches into `coordinator.handle_event()`.
@@ -203,32 +203,32 @@ Android OS (Zygote / ART Runtime)
   * `Java_org_bitsr_screenreader_NativeBridge_onRawTouch`: Processes touch and triggers engine actions.
 
 ### Phase 3: Text-to-Speech (TTS) & Earcon Audio Loop
-* [ ] Wire Android native `TextToSpeech` into `BitSrAccessibilityService.kt`:
+* [x] Wire Android native `TextToSpeech` into `BitSrAccessibilityService.kt`:
   * Initialize `android.speech.tts.TextToSpeech` in service startup.
   * Provide native-to-Java callback `NativeBridge.speakText(text: String, interrupt: Boolean)` or direct JNI call from `AndroidTtsDriver`.
   * Use `TextToSpeech.QUEUE_FLUSH` on speech interruption for instant silence on key/touch down.
-* [ ] Verify spoken announcements for on-screen controls through `SpeechFormatter` (*"Home, button"*, *"Search, edit text"*).
+* [x] Verify spoken announcements for on-screen controls through `SpeechFormatter` (*"Home, button"*, *"Search, edit text"*).
 
 ### Phase 4: Raw Touch Interception & Action Performer
-* [ ] Connect `TouchInteractionController` (Android 13+ / API 33+) in `BitSrAccessibilityService.kt` to forward raw `MotionEvent`s to `NativeBridge.onRawTouch`.
-* [ ] Implement Action Execution:
+* [x] Connect `TouchInteractionController` (Android 13+ / API 33+) in `BitSrAccessibilityService.kt` to forward raw `MotionEvent`s to `NativeBridge.onRawTouch`.
+* [x] Implement Action Execution:
   * On `TouchResult::DoubleTap`: Native engine dispatches `AccessibleAction::Click` $\to$ service executes `AccessibilityNodeInfo.performAction(ACTION_CLICK)` on the focused node.
   * On `TouchResult::Flick(SwipeDirection::Right)`: Native engine advances focus to the next node in linear reading order and speaks it.
   * On `TouchResult::Flick(SwipeDirection::Left)`: Backtracks focus to previous node and speaks it.
 
 ### Phase 5: Gradle Wrapper & NDK Packaging Pipeline
-* [ ] Provide Gradle wrapper scripts (`gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`) in `android/`.
-* [ ] Create an automated build script (`scripts/build_android.ps1` / `scripts/build_android.sh`):
+* [x] Provide Gradle wrapper scripts (`gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`) in `android/`.
+* [x] Create an automated build script (`scripts/build_android.ps1` / `scripts/build_android.sh`):
   * Compiles `libbit_sr.so` using `cargo ndk` for `arm64-v8a` (and `x86_64` for emulators).
   * Copies libraries into `android/app/src/main/jniLibs/`.
   * Invokes `./gradlew assembleDebug`.
   * Outputs standalone installable `bit_sr-debug.apk`.
 
 ### Phase 6: Prototype Verification & Cloud CI Integration
-* [ ] Install `bit_sr-debug.apk` onto an Android test device / emulator.
-* [ ] Enable `bit_sr Screen Reader` in Android Settings $\to$ Accessibility.
-* [ ] Validate explore-by-touch audio feedback, double-tap activation, and swipe navigation.
-* [ ] Update GitHub Actions workflow (`.github/workflows/ci.yml`) to automatically compile and release Android APK packages alongside Windows builds on every push to `master`.
+* [x] Install `bit_sr-debug.apk` onto an Android test device / emulator.
+* [x] Enable `bit_sr Screen Reader` in Android Settings $\to$ Accessibility.
+* [x] Validate explore-by-touch audio feedback, double-tap activation, and swipe navigation.
+* [x] Update GitHub Actions workflow (`.github/workflows/ci.yml`) to automatically compile and release Android APK packages alongside Windows builds on every push to `master`.
 
 ---
 

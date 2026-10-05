@@ -3,11 +3,13 @@ package org.bitsr.screenreader
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Rect
 import android.os.Build
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.Display
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.Locale
 
 /**
  * Ultra-thin AccessibilityService host for bit_sr.
@@ -15,10 +17,12 @@ import android.view.accessibility.AccessibilityNodeInfo
  * All exploration logic, double-tap detection, spatial hit-testing,
  * and audio feedback are executed directly within the native Rust engine.
  */
-class BitSrAccessibilityService : AccessibilityService() {
+class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallback, TextToSpeech.OnInitListener {
 
     private var enginePtr: Long = 0L
     private val tempRect = Rect()
+    private var tts: TextToSpeech? = null
+    private var isTtsReady: Boolean = false
 
     companion object {
         private const val TAG = "BitSrService"
@@ -27,6 +31,17 @@ class BitSrAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "Connecting bit_sr AccessibilityService and initializing Rust engine...")
+
+        // Register host callbacks for audio output and action execution
+        NativeBridge.hostCallback = this
+
+        // Initialize Android Text-to-Speech engine
+        try {
+            tts = TextToSpeech(applicationContext, this)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to initialize Android TextToSpeech", t)
+        }
+
         try {
             enginePtr = NativeBridge.initEngine()
             Log.i(TAG, "bit_sr native engine initialized at address: 0x" + java.lang.Long.toHexString(enginePtr))
@@ -57,10 +72,55 @@ class BitSrAccessibilityService : AccessibilityService() {
         }
     }
 
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts?.language = Locale.getDefault()
+            isTtsReady = true
+            Log.i(TAG, "Android TextToSpeech engine initialized successfully")
+        } else {
+            Log.e(TAG, "Android TextToSpeech initialization failed with status: $status")
+        }
+    }
+
+    override fun onSpeakText(text: String, interrupt: Boolean) {
+        val currentTts = tts ?: return
+
+        if (interrupt) {
+            currentTts.stop()
+        }
+
+        if (text.isNotBlank() && isTtsReady) {
+            val queueMode = if (interrupt) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            currentTts.speak(text, queueMode, null, "bit_sr_tts_${System.nanoTime()}")
+        }
+    }
+
+    override fun onPerformAction(actionId: Int, targetNodeId: Long): Boolean {
+        // Try finding the active accessibility focus first
+        val focused = findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+            ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+
+        if (focused != null) {
+            val success = focused.performAction(actionId)
+            focused.recycle()
+            return success
+        }
+
+        // Fallback: execute on active window root
+        val root = rootInActiveWindow
+        if (root != null) {
+            val success = root.performAction(actionId)
+            root.recycle()
+            return success
+        }
+
+        return false
+    }
+
     /**
      * Fallback motion event receiver for devices below Android 13 with FLAG_SEND_MOTION_EVENTS.
      */
-    fun onMotionEvent(event: MotionEvent) {
+    override fun onMotionEvent(event: MotionEvent) {
         handleRawMotionEvent(event)
     }
 
@@ -183,10 +243,21 @@ class BitSrAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        Log.i(TAG, "AccessibilityService interrupted")
+        Log.i(TAG, "AccessibilityService interrupted - stopping speech")
+        tts?.stop()
     }
 
     override fun onDestroy() {
+        NativeBridge.hostCallback = null
+        if (tts != null) {
+            try {
+                tts?.stop()
+                tts?.shutdown()
+            } catch (t: Throwable) {
+                Log.w(TAG, "Error shutting down TextToSpeech", t)
+            }
+            tts = null
+        }
         if (enginePtr != 0L) {
             NativeBridge.destroyEngine(enginePtr)
             enginePtr = 0L

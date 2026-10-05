@@ -4,6 +4,23 @@
 use bit_sr_speech::error::Result;
 use bit_sr_speech::synthesizer::SynthesizerDriver;
 use bit_sr_speech::voice::VoiceInfo;
+use parking_lot::RwLock;
+
+type SpeechCallback = Box<dyn Fn(&str, bool) + Send + Sync>;
+static SPEECH_CALLBACK: RwLock<Option<SpeechCallback>> = RwLock::new(None);
+
+/// Sets the global speech callback invoked on speak/stop.
+pub fn set_speech_callback<F>(f: F)
+where
+    F: Fn(&str, bool) + Send + Sync + 'static,
+{
+    *SPEECH_CALLBACK.write() = Some(Box::new(f));
+}
+
+/// Clears the global speech callback.
+pub fn clear_speech_callback() {
+    *SPEECH_CALLBACK.write() = None;
+}
 
 /// Android Text-To-Speech Driver.
 pub struct AndroidTtsDriver {
@@ -66,15 +83,21 @@ impl SynthesizerDriver for AndroidTtsDriver {
         Ok(())
     }
 
-    fn speak(&mut self, text: &str, _interrupt: bool) -> Result<()> {
+    fn speak(&mut self, text: &str, interrupt: bool) -> Result<()> {
         self.last_spoken = text.to_string();
         log::debug!("Android TTS speak: {}", text);
+        if let Some(ref cb) = *SPEECH_CALLBACK.read() {
+            cb(text, interrupt);
+        }
         Ok(())
     }
 
     fn stop(&mut self) -> Result<()> {
         self.last_spoken.clear();
         log::debug!("Android TTS stop");
+        if let Some(ref cb) = *SPEECH_CALLBACK.read() {
+            cb("", true);
+        }
         Ok(())
     }
 

@@ -20,8 +20,17 @@ ctrlc = "3.4"
 default = ["plugins"]
 plugins = ["dep:bit_sr_plugin"]
 
+[lib]
+name = "bit_sr"
+crate-type = ["cdylib", "rlib"]
+
 [target.'cfg(windows)'.dependencies]
 bit_sr_platform_windows = { path = "../bit_sr_platform_windows" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+bit_sr_platform_android = { path = "../bit_sr_platform_android" }
+jni = { version = "0.21", default-features = false }
+parking_lot = "0.12"
 
 [target.'cfg(windows)'.dev-dependencies]
 windows = { version = "0.60", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

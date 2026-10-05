@@ -12,7 +12,7 @@ pub mod tree;
 // Re-exports of primary types
 pub use apps::{AndroidAppType, AndroidChromeFilter, SoftKeyboardFilter, SystemUiFilter};
 pub use error::{Error, Result};
-pub use feedback::{AndroidTtsDriver, EarconType, HapticEffect};
+pub use feedback::{clear_speech_callback, set_speech_callback, AndroidTtsDriver, EarconType, HapticEffect};
 pub use input::{HardwareKeyTracker, KeyAction, SwipeDirection, TouchResult, TouchStateMachine};
 pub use platform::AndroidPlatform;
 pub use tree::{map_class_name_to_role, unpack_states, CachedNode, SpatialNodeCache};

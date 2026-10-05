@@ -15,8 +15,8 @@ permissions:
   contents: write
 
 jobs:
-  build-and-test:
-    name: Build, Test & Release (Windows x86_64)
+  build-and-test-windows:
+    name: Build & Test (Windows x86_64)
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -60,7 +60,7 @@ jobs:
           Copy-Item bit_sr-windows-x86_64.zip -Destination "bit_sr-windows-x86_64-${{ github.sha }}.zip"
           "$hash  bit_sr-windows-x86_64-${{ github.sha }}.zip" | Out-File -Encoding utf8 "bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256"
 
-      - name: Upload workflow artifacts
+      - name: Upload Windows workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: bit_sr-windows-x86_64
@@ -71,9 +71,79 @@ jobs:
             bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256
           if-no-files-found: error
 
+  build-android:
+    name: Build & Package (Android APK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Android Libraries and APK
+        run: |
+          chmod +x scripts/build_android.sh
+          bash scripts/build_android.sh
+
+      - name: Compute Checksums and Package
+        run: |
+          sha256sum target/bit_sr-debug.apk | awk '{print $1 "  bit_sr-debug.apk"}' > target/bit_sr-debug.apk.sha256
+          cp target/bit_sr-debug.apk "target/bit_sr-debug-${{ github.sha }}.apk"
+          sha256sum "target/bit_sr-debug-${{ github.sha }}.apk" | awk '{print $1 "  bit_sr-debug-${{ github.sha }}.apk"}' > "target/bit_sr-debug-${{ github.sha }}.apk.sha256"
+
+      - name: Upload Android workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bit_sr-android
+          path: |
+            target/bit_sr-debug.apk
+            target/bit_sr-debug.apk.sha256
+            target/bit_sr-debug-${{ github.sha }}.apk
+            target/bit_sr-debug-${{ github.sha }}.apk.sha256
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish Bleeding-Edge Multi-Platform Release
+    needs: [build-and-test-windows, build-android]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bit_sr-windows-x86_64
+          path: release-dist/
+
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bit_sr-android
+          path: release-dist/
+
       - name: Update bleeding-edge git tag
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -83,20 +153,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish bleeding-edge release
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: bleeding-edge
-          name: "Bleeding Edge (Development Build)"
+          name: "Bleeding Edge (Windows & Android Build)"
           prerelease: true
           make_latest: false
           files: |
-            bit_sr-windows-x86_64.zip
-            bit_sr-windows-x86_64.zip.sha256
-            bit_sr-windows-x86_64-${{ github.sha }}.zip
-            bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256
+            release-dist/bit_sr-windows-x86_64.zip
+            release-dist/bit_sr-windows-x86_64.zip.sha256
+            release-dist/bit_sr-windows-x86_64-${{ github.sha }}.zip
+            release-dist/bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256
+            release-dist/bit_sr-debug.apk
+            release-dist/bit_sr-debug.apk.sha256
+            release-dist/bit_sr-debug-${{ github.sha }}.apk
+            release-dist/bit_sr-debug-${{ github.sha }}.apk.sha256
           body: |
-            ## ⚠️ Bleeding-Edge Development Build
+            ## ⚠️ Bleeding-Edge Multi-Platform Development Build
 
             This is an automated continuous release built directly from the latest commit on `${{ github.ref_name }}`.
 
@@ -107,10 +180,15 @@ jobs:
             - **Workflow Run**: [Run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
             ### Download Artifacts
-            - **`bit_sr-windows-x86_64.zip`**: Latest standalone portable package for Windows (x86_64)
-            - **`bit_sr-windows-x86_64.zip.sha256`**: SHA256 checksum for verification
+            #### 🖥️ Windows (x86_64)
+            - **`bit_sr-windows-x86_64.zip`**: Latest standalone portable package for Windows
+            - **`bit_sr-windows-x86_64.zip.sha256`**: SHA256 verification hash
             - **`bit_sr-windows-x86_64-${{ github.sha }}.zip`**: Commit-pinned release archive
-            - **`bit_sr-windows-x86_64-${{ github.sha }}.zip.sha256`**: Checksum for the commit-pinned archive
+
+            #### 📱 Android (ARM64 & x86_64)
+            - **`bit_sr-debug.apk`**: Standalone installable Android accessibility service package
+            - **`bit_sr-debug.apk.sha256`**: SHA256 verification hash
+            - **`bit_sr-debug-${{ github.sha }}.apk`**: Commit-pinned APK package
 
             > **Warning**: Bleeding-edge builds reflect active development and may be incomplete or experimental.
         env:

@@ -149,7 +149,7 @@ fn main() {
     {
         let mut hub = bit_sr_speech::SpeechHub::new();
         hub.register_driver(Box::new(bit_sr_speech::drivers::MockSynthesizer::new()));
-        let mut coordinator = bit_sr_engine::EngineCoordinator::new(hub);
+        let mut coordinator = bit_sr::EngineCoordinator::new(hub);
 
         let key = bit_sr_core::input::KeyEvent::new(
             bit_sr_core::input::Key::A,

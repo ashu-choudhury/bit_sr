@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "org.bitsr.screenreader"
     compileSdk = 35
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "org.bitsr.screenreader"

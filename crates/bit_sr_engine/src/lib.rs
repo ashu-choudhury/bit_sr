@@ -1,8 +1,11 @@
-#![forbid(unsafe_code)]
+#![cfg_attr(not(target_os = "android"), forbid(unsafe_code))]
 //! Core Screen Reader Engine for bit_sr.
 //!
 //! Platform-agnostic engine orchestrating speech formatting, focus tracking,
 //! keyboard command dispatching, and reactive event loops.
+
+#[cfg(target_os = "android")]
+pub mod android_jni;
 
 pub mod commands;
 pub mod coordinator;
@@ -13,3 +16,4 @@ pub use commands::{CommandDispatcher, ScreenReaderCommand, SpeechMode};
 pub use coordinator::{EngineAction, EngineCoordinator};
 pub use formatter::{FormatterContext, SpeechFormatter};
 pub use tracker::{FocusTracker, FocusTransition};
+

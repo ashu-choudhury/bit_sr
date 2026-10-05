@@ -3,7 +3,7 @@
 //! High-performance native screen reader for Windows and Linux!
 
 use bit_sr_core::events::AccessibilityEvent;
-use bit_sr_engine::EngineCoordinator;
+use bit_sr::EngineCoordinator;
 use bit_sr_speech::SpeechHub;
 use crossbeam_channel::bounded;
 

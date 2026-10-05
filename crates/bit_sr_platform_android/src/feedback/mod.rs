@@ -6,4 +6,4 @@ pub mod tts;
 
 pub use earcons::EarconType;
 pub use haptics::HapticEffect;
-pub use tts::AndroidTtsDriver;
+pub use tts::{clear_speech_callback, set_speech_callback, AndroidTtsDriver};

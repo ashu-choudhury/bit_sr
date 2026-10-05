@@ -29,6 +29,7 @@ pub struct EngineCoordinator {
     pub tree_provider: Option<std::sync::Arc<dyn bit_sr_core::tree::TreeProvider>>,
     pub review_cursor: bit_sr_core::text::ReviewCursor,
     pub last_review_cmd: Option<(ScreenReaderCommand, std::time::Instant, u32)>,
+    pub action_performer: Option<std::sync::Arc<dyn bit_sr_core::actions::ActionPerformer>>,
     #[cfg(feature = "plugins")]
     pub plugin_manager: Option<std::sync::Arc<bit_sr_plugin::PluginManager>>,
 }
@@ -53,6 +54,7 @@ impl EngineCoordinator {
             tree_provider: None,
             review_cursor: bit_sr_core::text::ReviewCursor::new(),
             last_review_cmd: None,
+            action_performer: None,
             #[cfg(feature = "plugins")]
             plugin_manager: None,
         }
@@ -76,6 +78,7 @@ impl EngineCoordinator {
             tree_provider: None,
             review_cursor: bit_sr_core::text::ReviewCursor::new(),
             last_review_cmd: None,
+            action_performer: None,
             #[cfg(feature = "plugins")]
             plugin_manager: None,
         }
@@ -107,6 +110,25 @@ impl EngineCoordinator {
         self.tree_provider = Some(provider);
     }
 
+    /// Sets the platform action performer for executing physical UI actions.
+    pub fn set_action_performer(&mut self, performer: std::sync::Arc<dyn bit_sr_core::actions::ActionPerformer>) {
+        self.action_performer = Some(performer);
+    }
+
+    /// Executes an accessibility action on the currently focused node (or a specified target).
+    pub fn execute_action(&mut self, target: Option<bit_sr_core::node::NodeId>, action: bit_sr_core::actions::AccessibleAction) -> Result<(), bit_sr_core::actions::ActionError> {
+        let node_id = target.or_else(|| self.focus_tracker.current_focus().map(|n| n.id));
+        if let Some(id) = node_id {
+            if let Some(ref performer) = self.action_performer {
+                performer.perform_action(id, &action)
+            } else {
+                Err(bit_sr_core::actions::ActionError::PlatformFailure("No action performer registered".to_string()))
+            }
+        } else {
+            Err(bit_sr_core::actions::ActionError::NodeNotFound(bit_sr_core::node::NodeId(0)))
+        }
+    }
+
     /// Sets the active locale at runtime.
     pub fn set_locale(&self, locale: &str) {
         self.loc.set_locale(locale);
@@ -121,9 +143,9 @@ impl EngineCoordinator {
 
     /// Sets the active virtual buffer for web documents.
     pub fn set_web_buffer(&mut self, buffer: bit_sr_web::VirtualBuffer) {
-        let is_browse = buffer.mode == bit_sr_web::NavigationMode::Browse;
+        let _is_browse = buffer.mode == bit_sr_web::NavigationMode::Browse;
         #[cfg(windows)]
-        bit_sr_platform_windows::set_browse_mode_active(is_browse);
+        bit_sr_platform_windows::set_browse_mode_active(_is_browse);
         self.web_controller = Some(bit_sr_web::WebController::new(buffer));
     }
 
@@ -930,9 +952,9 @@ impl EngineCoordinator {
                     }
                     let actions = wc.toggle_mode();
                     for action in actions {
-                        if let bit_sr_web::WebAction::SwitchMode(mode) = action {
+                        if let bit_sr_web::WebAction::SwitchMode(_mode) = action {
                             #[cfg(windows)]
-                            bit_sr_platform_windows::set_browse_mode_active(mode == bit_sr_web::NavigationMode::Browse);
+                            bit_sr_platform_windows::set_browse_mode_active(_mode == bit_sr_web::NavigationMode::Browse);
                         }
                         if let bit_sr_web::WebAction::Speak(ref msg) = action {
                             let _ = self.speech_hub.speak(msg, SpeechPriority::Now);
