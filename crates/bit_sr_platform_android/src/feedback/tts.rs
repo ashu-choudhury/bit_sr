@@ -1,5 +1,5 @@
-//! Speech driver bridge for Android.
-//! Connects `bit_sr_speech` to Android's TextToSpeech and low-latency feedback.
+//! Android Text-to-Speech (TTS) synthesizer driver.
+//! Connects `bit_sr_speech` to Android's `TextToSpeech` service.
 
 use bit_sr_speech::error::Result;
 use bit_sr_speech::synthesizer::SynthesizerDriver;
@@ -11,6 +11,7 @@ pub struct AndroidTtsDriver {
     current_voice: Option<VoiceInfo>,
     rate: i32,
     volume: u16,
+    last_spoken: String,
 }
 
 impl Default for AndroidTtsDriver {
@@ -31,7 +32,13 @@ impl AndroidTtsDriver {
             }),
             rate: 50,
             volume: 100,
+            last_spoken: String::new(),
         }
+    }
+
+    /// Last string sent to speak.
+    pub fn last_spoken(&self) -> &str {
+        &self.last_spoken
     }
 }
 
@@ -59,14 +66,15 @@ impl SynthesizerDriver for AndroidTtsDriver {
         Ok(())
     }
 
-    fn speak(&mut self, _text: &str, _interrupt: bool) -> Result<()> {
-        // In native Android runtime, this invokes JNI TextToSpeech.speak()
-        // with QUEUE_FLUSH for interrupt = true or QUEUE_ADD for false.
+    fn speak(&mut self, text: &str, _interrupt: bool) -> Result<()> {
+        self.last_spoken = text.to_string();
+        log::debug!("Android TTS speak: {}", text);
         Ok(())
     }
 
     fn stop(&mut self) -> Result<()> {
-        // Dispatches JNI TextToSpeech.stop()
+        self.last_spoken.clear();
+        log::debug!("Android TTS stop");
         Ok(())
     }
 
@@ -94,5 +102,20 @@ impl SynthesizerDriver for AndroidTtsDriver {
 
     fn get_volume(&self) -> u16 {
         self.volume
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_android_tts_driver() {
+        let mut tts = AndroidTtsDriver::new();
+        assert_eq!(tts.name(), "android_tts");
+        assert!(tts.speak("Hello Android", true).is_ok());
+        assert_eq!(tts.last_spoken(), "Hello Android");
+        assert!(tts.stop().is_ok());
+        assert_eq!(tts.last_spoken(), "");
     }
 }

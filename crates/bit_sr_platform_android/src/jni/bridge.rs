@@ -1,41 +1,18 @@
 //! JNI Exported Functions for `BitSrAccessibilityService.kt` and `NativeBridge.kt`.
 //! Engineered for zero garbage collection allocations and sub-microsecond latency.
 
-use std::sync::atomic::{AtomicI64, Ordering};
-use parking_lot::Mutex;
-
-use jni::objects::{JClass, JLongArray, JObjectArray, JIntArray, JString};
+use std::sync::atomic::Ordering;
+use jni::objects::{JClass, JIntArray, JLongArray, JObjectArray, JString};
 use jni::sys::{jboolean, jfloat, jint, jlong, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 use bit_sr_core::node::{NodeId, Rect};
-use bit_sr_core::roles::Role;
 
-use crate::node_cache::{CachedNode, SpatialNodeCache};
-use crate::touch_machine::{TouchResult, TouchStateMachine};
-
-/// Native Android Screen Reader Engine State.
-pub struct AndroidEngineState {
-    pub touch_machine: Mutex<TouchStateMachine>,
-    pub node_cache: Mutex<SpatialNodeCache>,
-    pub last_focused_node: AtomicI64,
-}
-
-impl AndroidEngineState {
-    pub fn new() -> Self {
-        Self {
-            touch_machine: Mutex::new(TouchStateMachine::new()),
-            node_cache: Mutex::new(SpatialNodeCache::new()),
-            last_focused_node: AtomicI64::new(0),
-        }
-    }
-}
-
-impl Default for AndroidEngineState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use crate::input::touch::TouchResult;
+use crate::jni::converters::{jobject_array_string, jstring_to_string};
+use crate::jni::AndroidEngineState;
+use crate::tree::mapper::{map_class_name_to_role, unpack_states};
+use crate::tree::node::CachedNode;
 
 /// Java_org_bitsr_screenreader_NativeBridge_initEngine
 #[unsafe(no_mangle)]
@@ -105,8 +82,8 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
             log::info!("Double tap activated at ({}, {})!", x, y);
             JNI_TRUE
         }
-        TouchResult::Flick(cmd) => {
-            log::info!("Flick gesture triggered: {:?}", cmd);
+        TouchResult::Flick(dir) => {
+            log::info!("Flick gesture triggered: {:?}", dir);
             JNI_TRUE
         }
         TouchResult::None => JNI_FALSE,
@@ -134,13 +111,13 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onAccessibilityE
         return;
     }
 
-    let _pkg: String = env.get_string(&package_name).map(|s| s.into()).unwrap_or_default();
-    let cls: String = env.get_string(&class_name).map(|s| s.into()).unwrap_or_default();
-    let txt: String = env.get_string(&text).map(|s| s.into()).unwrap_or_default();
-    let desc: String = env.get_string(&content_description).map(|s| s.into()).unwrap_or_default();
+    let _pkg = jstring_to_string(&mut env, &package_name);
+    let cls = jstring_to_string(&mut env, &class_name);
+    let txt = jstring_to_string(&mut env, &text);
+    let desc = jstring_to_string(&mut env, &content_description);
 
     let label = if !txt.is_empty() { txt } else { desc };
-    let role = crate::node_mapper::map_class_name_to_role(&cls);
+    let role = map_class_name_to_role(&cls);
 
     log::debug!(
         "AOSP event: type=0x{:X}, role={:?}, label='{}', bounds=[{}, {}, {}, {}]",
@@ -198,20 +175,14 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_updateWindowTree
     let mut harvested = Vec::with_capacity(count);
 
     for i in 0..count {
-        let label: String = match env.get_object_array_element(&texts, i as i32) {
-            Ok(obj) if !obj.is_null() => {
-                let jstr = JString::from(obj);
-                env.get_string(&jstr).map(|s| s.into()).unwrap_or_default()
-            }
-            _ => String::new(),
-        };
-
+        let label = jobject_array_string(&mut env, &texts, i);
         let width = (right_buf[i] - left_buf[i]).max(0) as f64;
         let height = (bottom_buf[i] - top_buf[i]).max(0) as f64;
+        let node_states = unpack_states(state_buf[i]);
 
         harvested.push(CachedNode {
             id: NodeId(id_buf[i] as u64),
-            role: Role::Unknown,
+            role: bit_sr_core::roles::Role::Unknown,
             bounds: Rect {
                 left: left_buf[i] as f64,
                 top: top_buf[i] as f64,
@@ -219,7 +190,7 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_updateWindowTree
                 height,
             },
             label,
-            states: vec![],
+            states: node_states,
         });
     }
 

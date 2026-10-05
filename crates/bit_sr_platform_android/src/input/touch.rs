@@ -1,8 +1,15 @@
 //! Native Touch State Machine for Android.
-//! Intercepts raw MotionEvents (ACTION_DOWN, ACTION_MOVE, ACTION_UP) directly in Rust,
+//! Intercepts raw MotionEvents (ACTION_DOWN, ACTION_MOVE, ACTION_UP, ACTION_CANCEL) directly in Rust,
 //! completely bypassing slow AOSP TouchExplorer delay timers.
 
-use bit_sr_engine::commands::ScreenReaderCommand;
+/// Cardinal direction of a swipe/flick gesture recognized by the native state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SwipeDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
 
 /// Android MotionEvent action constants.
 pub const ACTION_DOWN: i32 = 0;
@@ -15,12 +22,12 @@ pub const ACTION_CANCEL: i32 = 3;
 pub enum TouchResult {
     /// Finger is moving across the screen (explore by touch).
     Explore { x: f64, y: f64 },
-    /// Quick tap completed.
+    /// Quick single tap completed at coordinate.
     Tap { x: f64, y: f64 },
-    /// Quick double-tap detected (< 250ms interval).
+    /// Quick double-tap detected (< 250ms interval) at coordinate.
     DoubleTap { x: f64, y: f64 },
     /// Directional swipe / flick detected.
-    Flick(ScreenReaderCommand),
+    Flick(SwipeDirection),
     /// Touch event ignored or in progress.
     None,
 }
@@ -55,7 +62,7 @@ impl TouchStateMachine {
             last_up_time: 0,
             last_up_x: 0.0,
             last_up_y: 0.0,
-            // 20px threshold for tap vs explore movement
+            // 20px threshold squared for tap vs explore movement
             drag_threshold_sq: 400.0,
             // 250ms double-tap timeout
             double_tap_timeout_ms: 250,
@@ -118,14 +125,14 @@ impl TouchStateMachine {
                 if duration < 250 && dist_sq > 2500.0 {
                     if dx.abs() > dy.abs() {
                         if dx > 0.0 {
-                            return TouchResult::Flick(ScreenReaderCommand::ReviewNextCharacter);
+                            return TouchResult::Flick(SwipeDirection::Right);
                         } else {
-                            return TouchResult::Flick(ScreenReaderCommand::ReviewPreviousCharacter);
+                            return TouchResult::Flick(SwipeDirection::Left);
                         }
                     } else if dy > 0.0 {
-                        return TouchResult::Flick(ScreenReaderCommand::ReviewNextLine);
+                        return TouchResult::Flick(SwipeDirection::Down);
                     } else {
-                        return TouchResult::Flick(ScreenReaderCommand::ReviewPreviousLine);
+                        return TouchResult::Flick(SwipeDirection::Up);
                     }
                 }
 
@@ -158,7 +165,10 @@ mod tests {
 
         // Tap 1
         assert_eq!(sm.process_touch(ACTION_DOWN, 100.0, 100.0, 1000), TouchResult::None);
-        assert_eq!(sm.process_touch(ACTION_UP, 102.0, 101.0, 1050), TouchResult::Tap { x: 102.0, y: 101.0 });
+        assert_eq!(
+            sm.process_touch(ACTION_UP, 102.0, 101.0, 1050),
+            TouchResult::Tap { x: 102.0, y: 101.0 }
+        );
 
         // Tap 2 within 150ms -> Double tap!
         let result = sm.process_touch(ACTION_DOWN, 105.0, 103.0, 1200);
@@ -172,6 +182,16 @@ mod tests {
         sm.process_touch(ACTION_DOWN, 100.0, 100.0, 1000);
         let result = sm.process_touch(ACTION_UP, 300.0, 110.0, 1100);
 
-        assert_eq!(result, TouchResult::Flick(ScreenReaderCommand::ReviewNextCharacter));
+        assert_eq!(result, TouchResult::Flick(SwipeDirection::Right));
+    }
+
+    #[test]
+    fn test_flick_swipe_left() {
+        let mut sm = TouchStateMachine::new();
+
+        sm.process_touch(ACTION_DOWN, 300.0, 100.0, 1000);
+        let result = sm.process_touch(ACTION_UP, 100.0, 110.0, 1100);
+
+        assert_eq!(result, TouchResult::Flick(SwipeDirection::Left));
     }
 }

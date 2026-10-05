@@ -10,7 +10,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bit_sr_core = { path = "../bit_sr_core" }
-bit_sr_engine = { path = "../bit_sr_engine" }
 bit_sr_speech = { path = "../bit_sr_speech" }
 jni = { version = "0.21", default-features = false }
 log = "0.4"
