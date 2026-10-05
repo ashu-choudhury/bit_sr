@@ -71,6 +71,16 @@ impl TouchStateMachine {
         }
     }
 
+    /// Sets the double tap interval window in milliseconds (e.g. 250-350ms).
+    pub fn set_double_tap_timeout(&mut self, timeout_ms: i64) {
+        self.double_tap_timeout_ms = timeout_ms;
+    }
+
+    /// Sets the maximum Euclidean distance squared allowed between taps in pixels.
+    pub fn set_double_tap_distance(&mut self, distance_px: f64) {
+        self.double_tap_distance_sq = distance_px * distance_px;
+    }
+
     /// Processes a raw touch point directly from JNI in microseconds.
     pub fn process_touch(&mut self, action: i32, x: f64, y: f64, time_ms: i64) -> TouchResult {
         match action {

@@ -113,4 +113,28 @@ object NativeBridge {
         texts: Array<String>,
         states: LongArray
     )
+
+    /**
+     * Caches the entire screen snapshot across all foreground/system windows.
+     */
+    external fun updateEntireScreen(
+        enginePtr: Long,
+        nodeIds: LongArray,
+        roles: IntArray,
+        boundsLeft: IntArray,
+        boundsTop: IntArray,
+        boundsRight: IntArray,
+        boundsBottom: IntArray,
+        texts: Array<String>,
+        states: LongArray
+    )
+
+    /**
+     * Configures the double-tap detection window in ms and spatial tolerance in px.
+     */
+    external fun setDoubleTapConfig(
+        enginePtr: Long,
+        timeoutMs: Long,
+        distancePx: Float
+    )
 }

@@ -192,10 +192,15 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onAccessibilityE
     const TYPE_VIEW_SELECTED: jint = 0x00000004;
     const TYPE_VIEW_FOCUSED: jint = 0x00000008;
     const TYPE_WINDOW_STATE_CHANGED: jint = 0x00000020;
+    const TYPE_VIEW_HOVER_ENTER: jint = 0x00000080;
     const TYPE_VIEW_ACCESSIBILITY_FOCUSED: jint = 0x00008000;
 
     let mut coord = state.coordinator.lock();
-    if event_type == TYPE_VIEW_FOCUSED || event_type == TYPE_VIEW_ACCESSIBILITY_FOCUSED || event_type == TYPE_VIEW_SELECTED {
+    if event_type == TYPE_VIEW_FOCUSED
+        || event_type == TYPE_VIEW_ACCESSIBILITY_FOCUSED
+        || event_type == TYPE_VIEW_SELECTED
+        || event_type == TYPE_VIEW_HOVER_ENTER
+    {
         state.last_focused_id.store(node_source_id, std::sync::atomic::Ordering::Relaxed);
         coord.handle_event(AccessibilityEvent::Focus(node));
     } else if event_type == TYPE_WINDOW_STATE_CHANGED {
@@ -269,6 +274,91 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_updateWindowTree
     state.node_cache.lock().update_window_tree(window_id, harvested);
 }
 
+/// Java_org_bitsr_screenreader_NativeBridge_updateEntireScreen
+/// Updates the full multi-window tree across the entire device screen (top status bar to bottom nav bar).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_updateEntireScreen(
+    mut env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+    node_ids: JLongArray,
+    _roles: JIntArray,
+    bounds_left: JIntArray,
+    bounds_top: JIntArray,
+    bounds_right: JIntArray,
+    bounds_bottom: JIntArray,
+    texts: JObjectArray,
+    states: JLongArray,
+) {
+    if engine_ptr == 0 {
+        return;
+    }
+
+    let state = unsafe { &*(engine_ptr as *const AndroidEngineState) };
+
+    let count = match env.get_array_length(&node_ids) {
+        Ok(len) => len as usize,
+        Err(_) => return,
+    };
+
+    let mut id_buf = vec![0i64; count];
+    let mut left_buf = vec![0i32; count];
+    let mut top_buf = vec![0i32; count];
+    let mut right_buf = vec![0i32; count];
+    let mut bottom_buf = vec![0i32; count];
+    let mut state_buf = vec![0i64; count];
+
+    let _ = env.get_long_array_region(&node_ids, 0, &mut id_buf);
+    let _ = env.get_int_array_region(&bounds_left, 0, &mut left_buf);
+    let _ = env.get_int_array_region(&bounds_top, 0, &mut top_buf);
+    let _ = env.get_int_array_region(&bounds_right, 0, &mut right_buf);
+    let _ = env.get_int_array_region(&bounds_bottom, 0, &mut bottom_buf);
+    let _ = env.get_long_array_region(&states, 0, &mut state_buf);
+
+    let mut harvested = Vec::with_capacity(count);
+
+    for i in 0..count {
+        let label = bit_sr_platform_android::jni::converters::jobject_array_string(&mut env, &texts, i);
+        let width = (right_buf[i] - left_buf[i]).max(0) as f64;
+        let height = (bottom_buf[i] - top_buf[i]).max(0) as f64;
+        let node_states = unpack_states(state_buf[i]);
+
+        harvested.push(CachedNode {
+            id: NodeId(id_buf[i] as u64),
+            role: bit_sr_core::roles::Role::Unknown,
+            bounds: Rect {
+                left: left_buf[i] as f64,
+                top: top_buf[i] as f64,
+                width,
+                height,
+            },
+            label,
+            states: node_states,
+        });
+    }
+
+    log::info!("Updated entire screen spatial cache with {} nodes", harvested.len());
+    state.node_cache.lock().update_entire_screen(harvested);
+}
+
+/// Sets double-tap detection parameters (timeout in ms, slop distance in px).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_setDoubleTapConfig(
+    _env: JNIEnv,
+    _class: JClass,
+    engine_ptr: jlong,
+    timeout_ms: jlong,
+    distance_px: jfloat,
+) {
+    if engine_ptr == 0 {
+        return;
+    }
+    let state = unsafe { &*(engine_ptr as *const AndroidEngineState) };
+    let mut machine = state.touch_machine.lock();
+    machine.set_double_tap_timeout(timeout_ms);
+    machine.set_double_tap_distance(distance_px as f64);
+}
+
 /// Java_org_bitsr_screenreader_NativeBridge_onRawTouch
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
@@ -300,6 +390,7 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
         TouchResult::Explore { x, y } => {
             let cache = state.node_cache.lock();
             if let Some(node) = cache.hit_test(x, y) {
+                let node_id = node.id;
                 let accessible_node = AccessibleNode {
                     id: node.id,
                     role: node.role,
@@ -310,6 +401,9 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
                 };
                 state.last_focused_id.store(node.id.0 as i64, std::sync::atomic::Ordering::Relaxed);
                 drop(cache);
+                // 1. Move Android's visual accessibility focus box (ACTION_ACCESSIBILITY_FOCUS = 0x40 / 64)
+                call_java_perform_action(64, node_id.0 as i64);
+                // 2. Announce and speak node in Rust engine immediately
                 state.coordinator.lock().handle_event(AccessibilityEvent::Focus(accessible_node));
             }
             JNI_TRUE
@@ -317,6 +411,7 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
         TouchResult::Tap { x, y } => {
             let cache = state.node_cache.lock();
             if let Some(node) = cache.hit_test(x, y) {
+                let node_id = node.id;
                 let accessible_node = AccessibleNode {
                     id: node.id,
                     role: node.role,
@@ -327,6 +422,9 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
                 };
                 state.last_focused_id.store(node.id.0 as i64, std::sync::atomic::Ordering::Relaxed);
                 drop(cache);
+                // 1. Move Android's visual accessibility focus box (ACTION_ACCESSIBILITY_FOCUS = 0x40 / 64)
+                call_java_perform_action(64, node_id.0 as i64);
+                // 2. Announce and speak node in Rust engine immediately
                 state.coordinator.lock().handle_event(AccessibilityEvent::Focus(accessible_node));
             }
             JNI_TRUE
@@ -342,6 +440,7 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
             let current_id = state.last_focused_id.load(std::sync::atomic::Ordering::Relaxed) as u64;
             let cache = state.node_cache.lock();
             if let Some(next) = cache.next_node(current_id) {
+                let next_id = next.id;
                 let accessible_node = AccessibleNode {
                     id: next.id,
                     role: next.role,
@@ -352,6 +451,7 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
                 };
                 state.last_focused_id.store(next.id.0 as i64, std::sync::atomic::Ordering::Relaxed);
                 drop(cache);
+                call_java_perform_action(64, next_id.0 as i64);
                 state.coordinator.lock().handle_event(AccessibilityEvent::Focus(accessible_node));
             }
             JNI_TRUE
@@ -361,6 +461,7 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
             let current_id = state.last_focused_id.load(std::sync::atomic::Ordering::Relaxed) as u64;
             let cache = state.node_cache.lock();
             if let Some(prev) = cache.previous_node(current_id) {
+                let prev_id = prev.id;
                 let accessible_node = AccessibleNode {
                     id: prev.id,
                     role: prev.role,
@@ -371,6 +472,7 @@ pub extern "system" fn Java_org_bitsr_screenreader_NativeBridge_onRawTouch(
                 };
                 state.last_focused_id.store(prev.id.0 as i64, std::sync::atomic::Ordering::Relaxed);
                 drop(cache);
+                call_java_perform_action(64, prev_id.0 as i64);
                 state.coordinator.lock().handle_event(AccessibilityEvent::Focus(accessible_node));
             }
             JNI_TRUE

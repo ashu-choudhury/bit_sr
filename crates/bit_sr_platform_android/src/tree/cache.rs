@@ -25,6 +25,11 @@ impl SpatialNodeCache {
         self.nodes = nodes;
     }
 
+    /// Replaces the entire multi-window snapshot across all windows on screen.
+    pub fn update_entire_screen(&mut self, nodes: Vec<CachedNode>) {
+        self.nodes = nodes;
+    }
+
     /// Performs sub-microsecond hit testing for raw screen coordinates (x, y).
     /// Returns the smallest leaf node enclosing the given point.
     pub fn hit_test(&self, x: f64, y: f64) -> Option<&CachedNode> {

@@ -70,6 +70,14 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
                 Log.w(TAG, "TouchInteractionController registration failed, falling back to onMotionEvent", t)
             }
         }
+
+        // Configure default responsive double-tap timing in Rust (280ms, 100px)
+        if (enginePtr != 0L) {
+            NativeBridge.setDoubleTapConfig(enginePtr, 280L, 100f)
+        }
+
+        // Take initial snapshot of the entire screen across all windows (Status Bar to Nav Bar)
+        takeEntireScreenSnapshot()
     }
 
     override fun onInit(status: Int) {
@@ -96,6 +104,42 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
     }
 
     override fun onPerformAction(actionId: Int, targetNodeId: Long): Boolean {
+        // If targetNodeId is specified, search and perform on that node
+        if (targetNodeId != 0L) {
+            fun findInTree(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+                if (node.hashCode().toLong() == targetNodeId) return node
+                for (i in 0 until node.childCount) {
+                    val child = node.getChild(i) ?: continue
+                    val found = findInTree(child)
+                    if (found != null) {
+                        if (found != child) child.recycle()
+                        return found
+                    }
+                    child.recycle()
+                }
+                return null
+            }
+
+            try {
+                val allWindows = windows
+                if (!allWindows.isNullOrEmpty()) {
+                    for (window in allWindows) {
+                        val root = window.root ?: continue
+                        val found = findInTree(root)
+                        if (found != null) {
+                            val success = found.performAction(actionId)
+                            if (found != root) root.recycle()
+                            found.recycle()
+                            return success
+                        }
+                        root.recycle()
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Error looking up node $targetNodeId", t)
+            }
+        }
+
         // Try finding the active accessibility focus first
         val focused = findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
             ?: findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
@@ -115,6 +159,37 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
         }
 
         return false
+    }
+
+    /**
+     * Handles hardware gesture callbacks from the AOSP TouchExploration framework.
+     */
+    override fun onGesture(gestureId: Int): Boolean {
+        Log.i(TAG, "onGesture called with gestureId: $gestureId")
+        if (enginePtr == 0L) return false
+
+        when (gestureId) {
+            GESTURE_DOUBLE_TAP -> {
+                Log.i(TAG, "Framework GESTURE_DOUBLE_TAP detected -> executing click")
+                onPerformAction(AccessibilityNodeInfo.ACTION_CLICK, 0L)
+                return true
+            }
+            GESTURE_DOUBLE_TAP_AND_HOLD -> {
+                onPerformAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, 0L)
+                return true
+            }
+            GESTURE_SWIPE_RIGHT -> {
+                // Swipe right -> Next element
+                NativeBridge.onRawTouch(enginePtr, 1, 1000f, 0f, System.currentTimeMillis())
+                return true
+            }
+            GESTURE_SWIPE_LEFT -> {
+                // Swipe left -> Previous element
+                NativeBridge.onRawTouch(enginePtr, 1, -1000f, 0f, System.currentTimeMillis())
+                return true
+            }
+            else -> return super.onGesture(gestureId)
+        }
     }
 
     /**
@@ -145,6 +220,12 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
         val text = event.text?.joinToString(" ") ?: ""
         val contentDesc = event.contentDescription?.toString() ?: ""
 
+        // If windows or window state changed, take an entire screen snapshot across all windows
+        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            takeEntireScreenSnapshot()
+        }
+
         val source = event.source
         var left = 0
         var top = 0
@@ -160,10 +241,10 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
             bottom = tempRect.bottom
             nodeId = source.hashCode().toLong()
 
-            // If window hierarchy changed, harvest and update Rust cache
-            if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-                eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
-                harvestActiveWindowTree(source)
+            // When user hovers/touches an element, immediately move Android's visual accessibility focus
+            if (eventType == AccessibilityEvent.TYPE_VIEW_HOVER_ENTER) {
+                Log.d(TAG, "Hover enter on node: $text $contentDesc -> moving visual accessibility focus")
+                source.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS)
             }
 
             source.recycle()
@@ -184,8 +265,12 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
         )
     }
 
-    private fun harvestActiveWindowTree(root: AccessibilityNodeInfo) {
-        // Collect window nodes into flat primitive buffers for zero-copy JNI transfer
+    /**
+     * Takes a complete snapshot of all windows currently displayed from top status bar to bottom nav bar.
+     */
+    private fun takeEntireScreenSnapshot() {
+        if (enginePtr == 0L) return
+
         val nodeIds = ArrayList<Long>()
         val roles = ArrayList<Int>()
         val boundsLeft = ArrayList<Int>()
@@ -198,7 +283,7 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
         fun traverse(node: AccessibilityNodeInfo) {
             node.getBoundsInScreen(tempRect)
             val label = (node.text ?: node.contentDescription ?: "").toString()
-            
+
             nodeIds.add(node.hashCode().toLong())
             roles.add(0) // Mapped in Rust
             boundsLeft.add(tempRect.left)
@@ -206,7 +291,7 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
             boundsRight.add(tempRect.right)
             boundsBottom.add(tempRect.bottom)
             texts.add(label)
-            
+
             var stateBits = 0L
             if (node.isFocused) stateBits = stateBits or 1L
             if (node.isAccessibilityFocused) stateBits = stateBits or 2L
@@ -224,12 +309,32 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
             }
         }
 
-        traverse(root)
+        try {
+            val allWindows = windows
+            if (!allWindows.isNullOrEmpty()) {
+                // Windows are ordered by layer/z-order: Status Bar, App, IME, Nav Bar
+                for (window in allWindows) {
+                    val root = window.root
+                    if (root != null) {
+                        traverse(root)
+                        root.recycle()
+                    }
+                }
+            } else {
+                // Fallback to active window root if getWindows() is unavailable
+                val activeRoot = rootInActiveWindow
+                if (activeRoot != null) {
+                    traverse(activeRoot)
+                    activeRoot.recycle()
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Error while snapshotting windows", t)
+        }
 
         if (nodeIds.isNotEmpty()) {
-            NativeBridge.updateWindowTree(
+            NativeBridge.updateEntireScreen(
                 enginePtr,
-                root.windowId,
                 nodeIds.toLongArray(),
                 roles.toIntArray(),
                 boundsLeft.toIntArray(),
@@ -239,6 +344,7 @@ class BitSrAccessibilityService : AccessibilityService(), NativeBridge.HostCallb
                 texts.toTypedArray(),
                 states.toLongArray()
             )
+            Log.i(TAG, "Harvested full-screen snapshot: ${nodeIds.size} nodes cached in Rust")
         }
     }
 

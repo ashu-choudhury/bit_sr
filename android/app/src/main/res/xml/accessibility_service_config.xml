@@ -4,9 +4,10 @@
     android:summary="@string/accessibility_service_summary"
     android:accessibilityEventTypes="typeAllMask"
     android:accessibilityFeedbackType="feedbackSpoken|feedbackHaptic|feedbackAudible"
-    android:notificationTimeout="20"
-    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds|flagRequestFilterKeyEvents|flagIncludeNotImportantViews|flagSendMotionEvents"
+    android:notificationTimeout="0"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagRequestTouchExplorationMode|flagReportViewIds|flagRequestFilterKeyEvents|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
     android:canRequestFilterKeyEvents="true"
-    android:canRequestTouchExplorationMode="true" />
+    android:canRequestTouchExplorationMode="true"
+    android:isAccessibilityTool="true" />
